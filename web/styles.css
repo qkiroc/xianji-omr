@@ -23,3 +23,5 @@ body.editor-mode .work-grid{grid-template-columns:210px minmax(0,1fr) 270px}body
 .work-title{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);height:56px;gap:16px}.editor-identity{display:flex;align-items:center;gap:8px;min-width:0}.work-title>.editor-tabs{padding:0;border:0;background:transparent;justify-content:center}.work-title>.header-right{justify-self:end;min-width:0}.work-title>.editor-tabs button{padding:7px 14px}.editor-identity #breadcrumb{min-width:0;flex:1}.page-nav{margin:6px 0 12px;justify-content:space-between}.page-nav button{flex:1}@media(max-width:1000px){.work-title{height:auto;min-height:56px;gap:8px}.editor-identity #breadcrumb{display:none}.work-title>.header-right{gap:4px}.work-title>.header-right button{padding:7px 6px}.work-title>.editor-tabs button{padding:7px 10px}.work-title .status-chip{display:none}}
 
 #exportDialog{width:min(800px,94vw);max-height:85vh;overflow:auto}#exportDialog .panel-title{align-items:flex-start}#exportDialog .panel-title p{margin-top:0}
+
+.records-table td:nth-child(2){max-width:300px;overflow-wrap:anywhere}.records-table td:nth-child(3){max-width:none;word-break:normal}

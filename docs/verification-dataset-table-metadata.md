@@ -50,3 +50,5 @@ sudo bash deploy/deploy.sh
 部署脚本先备份再迁移/发布。schema3 release不兼容schema4，健康失败不可让旧程序写新库；按现有兼容策略停服保留备份/release，不drop/reset、不用备份自动覆盖数据库。不要手动回退旧schema程序。
 
 预览只在当前云端任务服务存活期间可用，隔离PG/mock对象数据临时，不是云端持久化生产。GitHub推送不自动更新现有ECS。未实测真实OSS/RDS/RAM Role/systemd/跨浏览器及Windows桌面；HTTP仍需CLI显式允许且明文风险不变。真实云资源联调应在用户升级ECS后完成。
+
+后续列表简化已检查：歌曲表移除缩略图列与底部重复管理区；行内歌曲信息仍打开名称/songGroupKey/训练用途表单且不会误开编辑器。构建、两份JS语法检查、git diff --check及隔离Chrome实际表格/弹窗检查通过；此次纯UI调整未重复运行后端全套测试。截图任务路径 `/workspace/scratch/omr-song-list-compact.jpg`。
