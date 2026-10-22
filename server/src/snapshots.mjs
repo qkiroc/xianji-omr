@@ -1,0 +1,18 @@
+import {randomUUID} from 'node:crypto';
+import {need,ID,TAXONOMY,CATEGORIES,canonicalAnnotation,regions,digest,stable} from './annotation.mjs';
+import {transaction} from './datasets.mjs';
+export async function freezeSnapshot(pool,datasetId){need(ID.test(datasetId),'数据集ID无效');return transaction(pool,async c=>{
+ const dataset=(await c.query('SELECT * FROM omr_datasets WHERE id=$1',[datasetId])).rows[0];need(dataset,'数据集不存在',404);
+ const songs=(await c.query('SELECT * FROM omr_songs WHERE dataset_id=$1 ORDER BY id',[datasetId])).rows;
+ const size=(await c.query("SELECT count(*)::int pages,COALESCE(sum(jsonb_array_length(i.boxes)),0)::int boxes FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND i.status='confirmed'",[datasetId])).rows[0];need(size.pages<=200&&size.boxes<=10000,'每次快照最多200确认源页和10000来源框，请拆分数据集');
+ const sources=(await c.query("SELECT i.* FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND i.status='confirmed' ORDER BY i.id LIMIT 201",[datasetId])).rows;
+ need(sources.length>0,'没有已确认页面，无法导出');need(sources.length<=200,'首版每次快照最多200确认源页');
+ const groupSplit=new Map;for(const s of songs){need(!groupSplit.has(s.song_group_key)||groupSplit.get(s.song_group_key)===s.split,'同曲目组跨split，拒绝导出',409,{songGroupKey:s.song_group_key});groupSplit.set(s.song_group_key,s.split)}
+ const byChecksum=new Map,unique=[];
+ for(const page of sources){const song=songs.find(s=>s.id===page.song_id);need(page.coordinate&&page.annotation_format===TAXONOMY,'确认页缺少工作图/类别信息',409,{pageId:page.id});regions(page.boxes,page.coordinate.working.width,page.coordinate.working.height,{confirm:true,pageType:page.page_type});const canonical=canonicalAnnotation(page.boxes,page.page_type);const existing=byChecksum.get(page.checksum);const alias={pageId:page.id,songId:song.id,songGroupKey:song.song_group_key,songVersion:song.version,sourceVersion:page.version,pageOrder:page.page_order,name:page.original_name};
+  if(existing){need(existing.split===song.split,'同一原图跨split，拒绝导出',409,{pages:[existing.id,page.id]});need(stable({...existing.coordinate,original:{...existing.coordinate.original,key:undefined},working:{...existing.coordinate.working,key:undefined}})===stable({...page.coordinate,original:{...page.coordinate.original,key:undefined},working:{...page.coordinate.working,key:undefined}})&&existing.canonical===canonical,'同图的坐标图像或标注不一致，拒绝静默去重',409,{pages:[existing.id,page.id]});existing.aliases.push(alias)}else{const item={id:page.id,coordinate:page.coordinate,boxes:page.boxes,pageType:page.page_type,split:song.split,canonical,aliases:[alias]};byChecksum.set(page.checksum,item);unique.push(item)}
+ }
+ const draftCount=Number((await c.query("SELECT count(*) n FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND i.status<>'confirmed'",[datasetId])).rows[0].n);
+ const frozen=JSON.parse(JSON.stringify({schemaVersion:2,taxonomyVersion:TAXONOMY,dataset:{id:dataset.id,name:dataset.name,version:dataset.version,task:'layout'},songs:songs.map(s=>({id:s.id,name:s.name,songGroupKey:s.song_group_key,split:s.split,version:s.version})),images:unique.map(({canonical,...i})=>i),stats:{sourcePages:sources.length,uniqueImages:unique.length,sourceBoxes:sources.reduce((n,p)=>n+p.boxes.length,0),uniqueBoxes:unique.reduce((n,p)=>n+p.boxes.length,0),excludedDrafts:draftCount},warnings:[...(!unique.some(i=>i.split==='val')?['没有独立验证集']:[]),...(!unique.some(i=>i.split==='test')?['没有独立测试集']:[]) ]}));
+ const id=randomUUID();await c.query('INSERT INTO omr_snapshots(id,dataset_id,frozen) VALUES($1,$2,$3)',[id,datasetId,frozen]);return{id,frozen};
+ },{isolation:'REPEATABLE READ'})}
