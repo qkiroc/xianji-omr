@@ -1,6 +1,6 @@
 # ECS 一键部署（独立 xianji-omr）
 
-适用于 Alibaba Cloud Linux 3、x86_64 / aarch64、systemd。Node 22.18+，原生 ESM API + 无框架网页，同源提供；默认8790，禁止8787。脚本不会连接旧服务或读取旧配置，不安装本地生产数据库，不修改防火墙、安全组、RDS白名单、Bucket/CORS/ACL，不创建计费实例。
+适用于 Alibaba Cloud Linux 3、x86_64、systemd。Node 22.18+（22系列），Next.js App Router + TypeScript API，同源提供；默认8790，禁止8787。脚本不会连接旧服务或读取旧配置，不安装本地生产数据库，不修改防火墙、安全组、RDS白名单、Bucket/CORS/ACL，不创建计费实例。
 
 ## 先准备一次
 
@@ -19,6 +19,8 @@
 3. 保持现有私有 Bucket `xianji-source`（北京）及禁止公共访问。为 ECS 绑定已有最小权限 RAM Role（推荐），或准备仅限应用前缀的凭据。对象默认使用 `omr/`，只能配置其子前缀。最小对象权限为 `oss:PutObject`、`oss:GetObject`、`oss:DeleteObject`，Resource 为 `acs:oss:*:*:xianji-source/omr/*`（如使用子前缀可进一步收紧）。DeleteObject 只用于上传后数据库失败的补偿，业务软删除不删除OSS对象；不需要 ListBucket/PutBucketAcl/PutObjectAcl 或 CORS 修改。RAM Role 自动发现/可指定名称，凭据由官方 SDK 获取并更新；也支持 STS/AK。手工 STS 到期需由管理员在受限配置更新，长期服务优先 RAM Role。
 4. 确定网页访问 Origin（协议+主机+端口，不含路径，例如 `https://omr.example.com`）。生产建议在已有 HTTPS 反向代理后使用 `127.0.0.1:8790`，正确保留同源 Host/Origin；脚本不自动安装证书或修改现有代理。直接 HTTP 访问可显式配置 `http://ECS地址:8790` + `0.0.0.0`，Cookie不带Secure；此方式登录与图片会明文传输。不要把示例域名照抄为实际配置。
 
+本版部署命令必须先设置 `OMR_ARTIFACT`（已传到ECS的预构建包绝对路径）和 `OMR_SHA256`（本任务交付的64位校验值），见末节。不提供时直接停止，不会悄悄改成源码构建。
+
 ## 首次部署
 
 需要 sudo、Git、出站访问官方 Node/PostgreSQL HTTPS 源及 npm，建议4GB以上可用磁盘。ECS Git 拉取授权由你已有GitHub方式完成；本脚本不读取SSH私钥或配置Git授权。
@@ -26,7 +28,7 @@
 ```bash
 git clone --branch main https://github.com/qkiroc/xianji-omr.git
 cd xianji-omr
-sudo bash deploy/deploy.sh
+sudo bash deploy/deploy.sh --artifact "$OMR_ARTIFACT" --sha256 "$OMR_SHA256"
 ```
 
 首次依次配置：RDS主机/端口、专用账号密码、TLS/CA、管理员用户名/密码确认、监听地址/端口、网页 Origin、OSS Bucket/Region/Endpoint/前缀/认证模式，以及RAM Role名称（可空）或OSS凭据。数据库名及账号固定为 xianji_omr。数据库密码、管理员密码、AK ID/Secret、STS token均隐藏输入，无历史、不进入部署日志；不要一次粘贴多行。Ctrl+C/EOF安全取消，不发布半份配置。
@@ -40,14 +42,14 @@ sudo bash deploy/deploy.sh
 ```bash
 cd xianji-omr
 git pull --ff-only
-sudo bash deploy/deploy.sh
+sudo bash deploy/deploy.sh --artifact "$OMR_ARTIFACT" --sha256 "$OMR_SHA256"
 ```
 
 拉取冲突时先人工核对，不强制reset/push。部署要求干净的已提交源码（忽略node_modules/构建输出），只使用当前HEAD，重复执行不会重放已完成迁移，不删除标注数据。
 
-流程：OS/路径冲突检查 → flock部署锁 → 官方HTTPS下载并SHA256核验Node和PG18客户端（仅缺失时安装）→ 独立release安装锁定依赖/构建 → 私密配置 → 端口归属核验 → PostgreSQL advisory lock → 专用库/非超级用户/PG18/迁移历史校验 → 全库custom备份及pg_restore格式校验/SHA256 → 版本化事务迁移 → 原子current链接切换/systemd重启 → API/schema/release/网页健康检查 → 开机启动。
+流程：OS/路径冲突检查 → flock部署锁 → 官方HTTPS下载并SHA256核验Node和PG18客户端（仅缺失时安装）→ 校验云端预构建包/安全解压到独立release → 私密配置 → 端口归属核验 → PostgreSQL advisory lock → 专用库/非超级用户/PG18/迁移历史校验 → 全库custom备份及pg_restore格式校验/SHA256 → 版本化事务迁移 → 原子current链接切换/systemd重启 → API/schema/release/网页健康检查 → 开机启动。
 
-Node客户端安装在应用自身runtime，不覆盖系统Node。PG客户端由官方18.1源码构建，顺序为generated-headers → libpq → pg_dump/restore，不安装/启动PostgreSQL服务；首次编译可能几分钟。校验/构建/备份/迁移任何失败均停止。已经应用的迁移校验和不可改；未知schema拒绝部署和启动。以后迁移只允许expand，新增版本须更新compatibility与SCHEMA并测试；不支持自动破坏性迁移。PG18客户端可连接同major的18.0 RDS。
+Node客户端安装在应用自身runtime，不覆盖系统Node。PG客户端由官方18.1源码构建，顺序为generated-headers → libpq → pg_dump/restore，不安装/启动PostgreSQL服务；首次编译可能几分钟。校验/备份/迁移任何失败均停止。已经应用的迁移校验和不可改；未知schema拒绝部署和启动。以后迁移只允许expand，新增版本须更新compatibility与SCHEMA并测试；不支持自动破坏性迁移。PG18客户端可连接同major的18.0 RDS。
 
 健康检查失败：仅在旧release兼容当前schema时切回旧代码并重查；否则停服。没有旧版本时停服。绝不drop/reset/down或用备份覆盖数据库。重启有短暂中断，不是零停机。发布失败保留release/备份供诊断，不自动清理旧版本。部署锁覆盖备份至健康检查；数据库账号池max=3（部署时另有备份连接，仍低于20），API查询超时15s。
 
@@ -81,7 +83,7 @@ Node客户端安装在应用自身runtime，不覆盖系统Node。PG客户端由
 
 ```bash
 git pull --ff-only
-sudo bash deploy/deploy.sh
+sudo bash deploy/deploy.sh --artifact "$OMR_ARTIFACT" --sha256 "$OMR_SHA256"
 ```
 
 本轮 schema 2 使用版本化迁移 002，保留原有图片 ID、对象 key、坐标、版本和登录会话。旧图片进入“历史待整理”曲目，保持 legacy 草稿，不自动确认、不自动作为训练数据。用户需创建明确曲目/分组，逐页转换、归类并确认；浏览器原有未保存草稿不会被删除。新版保存拒绝旧客户端无类别覆盖。
@@ -92,16 +94,44 @@ sudo bash deploy/deploy.sh
 
 ## 独立 CLI 授权升级（schema 3）
 
-在现有仓库执行 `git pull --ff-only` 后 `sudo bash deploy/deploy.sh`。003仅新增CLI授权请求与grant表/索引，保留原图、标注、快照及网站会话；凭证只存hash。迁移前备份与部署锁沿用；失败不重置数据库。schema2旧release不兼容schema3，禁止手工回退旧代码写库。AF_NETLINK保留，不修改8787或既有配置。
+在现有仓库执行 `git pull --ff-only` 后 `sudo bash deploy/deploy.sh --artifact "$OMR_ARTIFACT" --sha256 "$OMR_SHA256"`。003仅新增CLI授权请求与grant表/索引，保留原图、标注、快照及网站会话；凭证只存hash。迁移前备份与部署锁沿用；失败不重置数据库。schema2旧release不兼容schema3，禁止手工回退旧代码写库。AF_NETLINK保留，不修改8787或既有配置。
 
 生产归档仍为package.json/package-lock.json/web/server/deploy，无workspaces或CLI依赖；授权网页/API随原归档发布，本地CLI不需安装在ECS。现有HTTP origin可显式允许，无需本轮配置证书，但不能视为加密传输或标准OAuth公网TLS部署。只有部署本版本后CLI浏览器授权才可用。本轮仅隔离PG/mock OSS测试，未部署生产。
 
 ## 数据集/歌曲目录及元信息升级（schema 4）
 
-现有安装执行同一命令：`git pull --ff-only`，然后`sudo bash deploy/deploy.sh`。004是增量迁移，新增数据集/歌曲/谱页独立deleted_at、图片source/annotation_version/deleted_boxes及索引；不改旧SQL校验和、不重写原七类ID/框/对象，不删除现有会话或CLI授权，不重写已冻结包。schema3数据和授权升4且重复迁移已在隔离PG18验证。
+现有安装执行同一命令：`git pull --ff-only`，然后`sudo bash deploy/deploy.sh --artifact "$OMR_ARTIFACT" --sha256 "$OMR_SHA256"`。004是增量迁移，新增数据集/歌曲/谱页独立deleted_at、图片source/annotation_version/deleted_boxes及索引；不改旧SQL校验和、不重写原七类ID/框/对象，不删除现有会话或CLI授权，不重写已冻结包。schema3数据和授权升4且重复迁移已在隔离PG18验证。
 
 迁移前备份照常执行。旧schema3 release的声明不兼容schema4；健康检查失败不能回退运行旧程序写新库，脚本按兼容策略停止并保留备份/release，禁止手动reset/drop/覆盖库。AF_NETLINK与独立端口8790保留，不改8787服务或访问控制。此次没有操作生产；真实OSS/RDS和systemd须由ECS升级后验收。
 
 删除与恢复只改数据库状态及版本，父数据集/歌曲不可用时其页面内容、读写、上传、确认和新快照均拒绝。恢复父级不恢复先前独立删除的子项。原OSS对象与历史冻结包保留，旧包仍可认证下载，后续新快照只选活跃确认页。新歌曲表服务端分页，不改变曲目级split隔离；编辑器左侧拖拽页序为原子乐观锁操作，不修改框内容和确认状态。schema4当前仅允许新版程序运行。
 
 裁片检查视图无需新增服务或OSS权限。004的deleted_boxes保留已移除区域；框复核状态随boxes保存，旧类别/快照保持解释。网页复核与CLI接口继续走既有会话/Bearer scope，不新增密码、公开链接或外部服务。
+
+
+## schema5 / Next.js 与低内存部署包（当前部署方式）
+
+ECS约1.8GiB内存，默认**不执行npm install或next build**。先在电脑下载本任务交付的Linux x64/Node22 tar.gz及SHA256文件，再通过你的正常文件传输方式放到ECS，例如 `/var/tmp/xianji-omr-release.tar.gz`。不要在聊天中传配置和密钥。预构建包与源码main的commit必须完全一致；不要将其他版本包用于当前checkout。
+
+```bash
+cd /你的检出路径/xianji-omr
+git pull --ff-only
+export OMR_ARTIFACT=/var/tmp/xianji-omr-release.tar.gz
+# 填交付时公布的64位校验值；它不是凭据
+export OMR_SHA256=交付的SHA256
+sudo bash deploy/deploy.sh --artifact "$OMR_ARTIFACT" --sha256 "$OMR_SHA256"
+```
+
+首次仍需要专用库/账号、已有OSS授权以及交互终端私密配置，见本文件前文。升级复用 `/etc/xianji-omr/config.json`，先全库备份，再005增量迁移；原切图、确认页、CLI授权、回收站、冻结快照不重写。schema4旧代码不支持schema5，健康失败只回退兼容schema5的release，否则停止新服务保留备份/数据，不能把旧代码强行启动写库。未操作弦记8787。
+
+预构建包包含 `.next`生产输出（含standalone追踪输出和静态块）、锁定生产node_modules、TS API/迁移、应用源码和部署文件；Next standalone默认生成的server.js不承载本项目认证API，因此通过同包的`server/src/index.mjs`自定义同源入口运行。无需另开端口。含sharp Linux x64原生依赖，目标glibc>=2.26；不是arm64包，不包含Node二进制，bootstrap只在缺失时核验/安装独立Node22与PG18备份客户端。服务MemoryMax512M、Node heap256M，未在真实ECS压测，不保证极端并发不会触发限额；上传和导出按已有资源限制串行/受限进行。
+
+开发者仅在云端有足够内存的干净commit上执行：
+
+```bash
+npm ci
+node deploy/build-artifact.mjs /云端交付目录
+# 该命令要求当前node为Linux x64 Node22，拒绝未提交源码
+```
+
+产物生成后必须使用同一Node22在隔离PG/mock OSS运行归档启动验收，并提供SHA256。包不含任何配置、凭证、测试fixture、真实图片、标注、模型或node_modules中的embedded-postgres测试依赖。生产不从包外读取旧服务配置。源码构建只对明确传`--build-from-source`且至少3GiB可用内存开放，不适用于当前小内存ECS。

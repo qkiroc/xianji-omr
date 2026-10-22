@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
+artifact= checksum= build_source=false
+while (( $# )); do
+ case $1 in
+ --artifact) [[ $# -ge 2 ]] || exit 2; artifact=$2; shift 2 ;;
+ --sha256) [[ $# -ge 2 ]] || exit 2; checksum=$2; shift 2 ;;
+ --build-from-source) build_source=true; shift ;;
+ *) echo '用法：sudo bash deploy/deploy.sh --artifact /path/package.tar.gz --sha256 SHA256'; exit 2 ;;
+ esac
+done
+if [[ -z $artifact && $build_source != true ]]; then echo '请提供云端预构建包 --artifact 与 --sha256；默认不在 ECS 构建 Next.js。'; exit 2; fi
+if [[ -n $artifact && $build_source == true ]]; then echo '产物模式与源码构建不能同时使用'; exit 2; fi
+if [[ $build_source == true ]]; then
+ available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+ [[ $available -ge 3145728 ]] || { echo '源码构建要求至少3GiB可用内存，请使用云端预构建包'; exit 1; }
+fi
 [[ $EUID -eq 0 ]] || { echo '请执行 sudo bash deploy/deploy.sh'; exit 1; }
 source /etc/os-release
 [[ $ID == alinux && $VERSION_ID == 3* && -d /run/systemd/system ]] || { echo '仅支持 Alibaba Cloud Linux 3 + systemd'; exit 1; }
@@ -29,9 +44,16 @@ if ! id xianji-omr >/dev/null 2>&1; then useradd --system --home-dir /nonexisten
 version=$(date -u +%Y%m%dT%H%M%SZ)-$(git -C "$repo" rev-parse --short=12 HEAD)-$$
 release=$root/releases/$version
 mkdir -m 755 "$release"
-git -C "$repo" archive HEAD package.json package-lock.json web server deploy | tar -xf - -C "$release"
-echo '阶段：安装锁定依赖、构建同源网页/API'
-(cd "$release" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm run build)
+if [[ -n $artifact ]]; then
+ echo '阶段：校验云端预构建包（不在 ECS npm install / next build）'
+ node "$repo/deploy/artifact.mjs" archive "$artifact" "$checksum"
+ tar --no-same-owner --no-same-permissions -xzf "$artifact" -C "$release"
+ node "$repo/deploy/artifact.mjs" release "$release" "$(git -C "$repo" rev-parse HEAD)"
+else
+ git -C "$repo" archive HEAD package.json package-lock.json web server deploy app components shared next.config.ts next-env.d.ts tsconfig.json | tar -xf - -C "$release"
+ echo '阶段：显式源码构建，已核验可用内存'
+ (cd "$release" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm run build)
+fi
 printf '%s\n' "$version" > "$release/server/RELEASE"
 chmod -R a+rX "$release"
 echo '阶段：首次私密配置或复用配置（提示直接显示在终端，密码隐藏）'

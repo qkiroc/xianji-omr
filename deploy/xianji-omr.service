@@ -9,6 +9,8 @@ Group=xianji-omr
 WorkingDirectory=/opt/xianji-omr/current
 Environment=OMR_CONFIG=/etc/xianji-omr/config.json
 Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=256
+Environment=NEXT_TELEMETRY_DISABLED=1
 ExecStart=/opt/xianji-omr/runtime/node/bin/node /opt/xianji-omr/current/server/src/index.mjs
 Restart=on-failure
 RestartSec=3

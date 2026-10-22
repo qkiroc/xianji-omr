@@ -1,1 +1,38 @@
-{"name":"xianji-omr","version":"1.0.0","private":true,"type":"module","engines":{"node":">=22.18.0"},"scripts":{"build":"node server/build.mjs","start":"node server/src/index.mjs","test":"node --test test/*.test.mjs","dev":"node test/preview.mjs"},"dependencies":{"@alicloud/credentials":"^2.4.4","ali-oss":"^6.23.0","express":"^5.1.0","pg":"^8.16.3","sharp":"^0.34.5","yazl":"^3.3.1"},"devDependencies":{"embedded-postgres":"^18.1.0-beta.15"}}
+{
+  "name": "xianji-omr",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build": "node server/build.mjs",
+    "start": "node server/src/index.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "dev": "node test/start-preview.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@alicloud/credentials": "^2.4.4",
+    "@types/ali-oss": "6.23.3",
+    "@types/express": "5.0.6",
+    "@types/node": "26.6.5",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/yazl": "3.3.1",
+    "ali-oss": "^6.23.0",
+    "express": "^5.1.0",
+    "next": "16.4.2",
+    "pg": "^8.16.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "sharp": "^0.34.5",
+    "typescript": "5.9.3",
+    "yazl": "^3.3.1"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^18.1.0-beta.15"
+  }
+}

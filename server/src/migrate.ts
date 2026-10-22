@@ -1,0 +1,150 @@
+import {
+  readdir,
+  readFile,
+  mkdir,
+  rename,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { spawn } from "node:child_process";
+import { join } from "node:path";
+export const SCHEMA = 5,
+  LOCK = 79142602;
+export async function files(
+  dir: any = new URL("../migrations/", import.meta.url),
+) {
+  const names = (await readdir(dir))
+    .filter((n: any) => n.endsWith(".sql"))
+    .sort();
+  return Promise.all(
+    names.map(async (name: any, i: any) => {
+      if (!name.startsWith(String(i + 1).padStart(3, "0") + "-"))
+        throw Error("MIGRATION_SEQUENCE");
+      const sql = await readFile(new URL(name, dir), "utf8");
+      if (
+        !sql.startsWith("-- compatibility: expand\n") ||
+        /\b(DROP|TRUNCATE|DELETE|COMMIT|ROLLBACK|VACUUM|CONCURRENTLY)\b/i.test(
+          sql
+            .replace(/\$\$[\s\S]*?\$\$/g, "")
+            .replace(/BEFORE UPDATE OR DELETE ON/g, "BEFORE UPDATE ON"),
+        ) ||
+        /\bBEGIN\s*;/i.test(
+          sql
+            .replace(/\$\$[\s\S]*?\$\$/g, "")
+            .replace(/BEFORE UPDATE OR DELETE ON/g, "BEFORE UPDATE ON"),
+        )
+      )
+        throw Error("MIGRATION_NOT_EXPAND");
+      return {
+        version: i + 1,
+        name,
+        sql,
+        checksum: createHash("sha256").update(sql).digest("hex"),
+      };
+    }),
+  );
+}
+export async function checkHistory(c: any, fs: any = undefined) {
+  fs ||= await files();
+  let exists = (
+    await c.query("SELECT to_regclass('public.omr_migrations') AS t")
+  ).rows[0].t;
+  const rows = exists
+    ? (await c.query("SELECT * FROM omr_migrations ORDER BY version")).rows
+    : [];
+  if (
+    rows.some(
+      (r: any, i: any) =>
+        r.version !== i + 1 ||
+        r.name !== fs[i]?.name ||
+        r.checksum !== fs[i]?.checksum,
+    )
+  )
+    throw Error("SCHEMA_HISTORY_MISMATCH");
+  return rows.length;
+}
+export async function assertSchema(c: any) {
+  if ((await checkHistory(c)) !== SCHEMA) throw Error("SCHEMA_UNSUPPORTED");
+}
+export async function withLock(pool: any, fn: any) {
+  const c = await pool.connect();
+  let locked = false;
+  try {
+    locked = (await c.query("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]))
+      .rows[0].ok;
+    if (!locked) throw Error("DEPLOYMENT_BUSY");
+    return await fn(c);
+  } finally {
+    if (locked)
+      await c.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
+    c.release();
+  }
+}
+export async function migrate(c: any, fs: any = undefined) {
+  fs ||= await files();
+  const n = await checkHistory(c, fs);
+  for (const f of fs.slice(n)) {
+    try {
+      await c.query("BEGIN");
+      await c.query(
+        "SET LOCAL lock_timeout='10s'; SET LOCAL statement_timeout='120s'",
+      );
+      await c.query(
+        "CREATE TABLE IF NOT EXISTS omr_migrations(version integer PRIMARY KEY,name text NOT NULL,checksum text NOT NULL,applied_at timestamptz DEFAULT now())",
+      );
+      await c.query(f.sql);
+      await c.query(
+        "INSERT INTO omr_migrations(version,name,checksum) VALUES($1,$2,$3)",
+        [f.version, f.name, f.checksum],
+      );
+      await c.query("COMMIT");
+    } catch {
+      await c.query("ROLLBACK");
+      throw Error("MIGRATION_FAILED");
+    }
+  }
+}
+export function command(bin: any, args: any, options: any = {}) {
+  return new Promise((resolve: any, reject: any) => {
+    const p = spawn(bin, args, { stdio: "ignore", ...options });
+    p.on("error", () => reject(Error("COMMAND_FAILED_" + bin)));
+    p.on("exit", (code: any) =>
+      code === 0 ? resolve() : reject(Error("COMMAND_FAILED_" + bin)),
+    );
+  });
+}
+export async function backup(
+  config: any,
+  directory: any,
+  { run = command }: any = {},
+) {
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const d = config.database,
+    file = join(directory, Date.now() + "-" + randomUUID() + ".dump"),
+    partial = file + ".partial";
+  const env = {
+    ...process.env,
+    PGHOST: d.host,
+    PGPORT: String(d.port),
+    PGUSER: d.user,
+    PGPASSWORD: d.password,
+    PGDATABASE: d.database,
+    PGSSLMODE: d.sslMode,
+    PGCONNECT_TIMEOUT: "10",
+    ...(d.caFile ? { PGSSLROOTCERT: d.caFile } : {}),
+  };
+  await run(
+    "pg_dump",
+    ["--format=custom", "--no-owner", "--no-acl", "--file", partial],
+    { env },
+  );
+  if ((await stat(partial)).size < 16) throw Error("BACKUP_EMPTY");
+  await run("pg_restore", ["--list", partial]);
+  const hash = createHash("sha256");
+  for await (const b of createReadStream(partial)) hash.update(b);
+  await writeFile(file + ".sha256", hash.digest("hex") + "\n", { mode: 0o600 });
+  await rename(partial, file);
+  return file;
+}

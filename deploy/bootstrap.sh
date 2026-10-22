@@ -16,7 +16,7 @@ if [[ ! -x $runtime/node/bin/node ]]; then
  verify "$work/$name" "$work/node.sha256" "$name"
  tar -xJf "$work/$name" -C "$work"; mv "$work/${name%.tar.xz}" "$runtime/node"
 fi
-"$runtime/node/bin/node" -e 'const[a,b]=process.versions.node.split(".").map(Number);if(a<22||(a===22&&b<18))process.exit(1)'
+"$runtime/node/bin/node" -e 'const[a,b]=process.versions.node.split(".").map(Number);if(a!==22||b<18)process.exit(1)'
 if [[ ! -x $runtime/postgresql/bin/pg_dump || ! -x $runtime/postgresql/bin/pg_restore ]]; then
  version=18.1; name=postgresql-$version.tar.bz2
  fetch "https://ftp.postgresql.org/pub/source/v$version/$name.sha256" "$work/$name.sha256"

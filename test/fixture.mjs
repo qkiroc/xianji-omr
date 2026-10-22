@@ -10,7 +10,7 @@ import {join} from 'node:path';
 import {hashPassword,poolFor} from '../server/src/config.mjs';
 import {withLock,migrate,files} from '../server/src/migrate.mjs';
 import {createApp} from '../server/src/app.mjs';
-export async function fixture({port=55439,webPort=0,origin,previewLogin=false,migrationVersion=4}={}){
+export async function fixture({port=55439,webPort=0,origin,previewLogin=false,migrationVersion=5,webHandler,appFactory=createApp}={}){
  const dir=await mkdtemp(join(tmpdir(),'omr-isolated-'));
  const binaries=new URL('../node_modules/@embedded-postgres/linux-x64/native/bin/',import.meta.url).pathname;
  let shim=process.env.OMR_TEST_ROOT_SHIM;
@@ -25,6 +25,6 @@ export async function fixture({port=55439,webPort=0,origin,previewLogin=false,mi
  const config={host:'127.0.0.1',port:webPort,origin:origin||'http://127.0.0.1',secureCookie:false,username:'admin',passwordHash:hashPassword('test-admin-12345'),database:{host:'127.0.0.1',port,database:'xianji_omr',user:'xianji_omr',password:'isolated-app-only',sslMode:'disable'},oss:{prefix:'omr/'}};
  const pool=await poolFor(config);await withLock(pool,async c=>migrate(c,(await files()).slice(0,migrationVersion)));
  const objects=new Map,fail={put:false,get:false,delete:false};const storage={async put(k,d){if(fail.put)throw Error('MOCK_STORAGE_DOWN');objects.set(k,Buffer.from(d))},async putStream(k,stream){const chunks=[];for await(const b of stream)chunks.push(b);await this.put(k,Buffer.concat(chunks))},async getStream(k){return Readable.from(await this.get(k))},async get(k){if(fail.get||!objects.has(k))throw Error('MOCK_STORAGE_DOWN');return objects.get(k)},async delete(k){if(fail.delete)throw Error('MOCK_STORAGE_DOWN');objects.delete(k)}};
- const app=createApp({config,pool,storage,staticDir:new URL('../server/static/',import.meta.url).pathname,release:'isolated-test'});if(previewLogin){app.get('/__test-login',async(req,res)=>{const token=randomBytes(32).toString('hex'),hash=s=>createHash('sha256').update(s).digest('hex');await pool.query("INSERT INTO omr_sessions VALUES($1,$2,now()+interval '1 day')",[hash(token),hash(config.passwordHash)]);res.cookie('omr_session',token,{httpOnly:true,sameSite:'strict'});res.redirect('/')})}const server=app.listen(webPort,'0.0.0.0');await new Promise(r=>server.once('listening',r));if(!origin)config.origin='http://127.0.0.1:'+server.address().port;
+ const app=appFactory({config,pool,storage,staticDir:new URL('../server/static/',import.meta.url).pathname,release:'isolated-test',webHandler});if(previewLogin){app.get('/__test-login',async(req,res)=>{const token=randomBytes(32).toString('hex'),hash=s=>createHash('sha256').update(s).digest('hex');await pool.query("INSERT INTO omr_sessions VALUES($1,$2,now()+interval '1 day')",[hash(token),hash(config.passwordHash)]);res.cookie('omr_session',token,{httpOnly:true,sameSite:'strict'});res.redirect('/')});app.router.stack.unshift(app.router.stack.pop())}const server=app.listen(webPort,'0.0.0.0');await new Promise(r=>server.once('listening',r));if(!origin)config.origin='http://127.0.0.1:'+server.address().port;
  return {app,config,pool,cluster,storage,objects,fail,dir,server,url:'http://127.0.0.1:'+server.address().port,async close(){await app.locals.platform.exporter.idle();await new Promise(r=>server.close(r));await pool.end();await cluster.stop()}};
 }

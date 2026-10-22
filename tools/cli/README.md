@@ -96,3 +96,8 @@ node tools/cli/xianji-omr.mjs regions restore "$PAGE_ID" --region "$REGION_ID" -
 ```
 
 保存移除的框保留于pages get返回的deletedBoxes（最多5000），restore保留原ID/内容但恢复为draft；不创建副本。历史快照不会被后续复核或删除改写。
+
+
+## CLI0.3.0 几何定位
+
+新增14个localization命令，全部50模板可检查，原命令保留。完整stdin导入、schema、来源映射、版本锁、显式确认和原生/裁片下载见仓库 [定位契约](../../docs/localization-contract.md)。离线使用者可打开 https://github.com/qkiroc/xianji-omr/blob/main/docs/localization-contract.md 。CLI仅调用平台，不连接OSS/RDS；平台需升级schema5后才有新接口。

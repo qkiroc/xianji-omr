@@ -5,3 +5,7 @@ config.json
 *.partial
 *.log
 .test-data/
+
+.next/
+*.tsbuildinfo
+.artifacts/

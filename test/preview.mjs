@@ -1,2 +1,4 @@
+import next from 'next';
 import {fixture} from './fixture.mjs';
-const f=await fixture({webPort:4173,origin:'http://terminal.local:4173',previewLogin:true});console.log('隔离测试预览就绪；admin / test-admin-12345；不是生产资源');const stop=async()=>{await f.close();process.exit(0)};process.on('SIGTERM',stop);process.on('SIGINT',stop);
+const nextApp=next({dev:false,dir:process.cwd(),hostname:'0.0.0.0',port:4173});await nextApp.prepare();
+const f=await fixture({webPort:4173,origin:'http://terminal.local:4173',previewLogin:true,webHandler:nextApp.getRequestHandler()});await import('./catalogue-browser.mjs');await import('./cli-browser.mjs');const {localizationSetup}=await import('./localization-helpers.mjs');const loc=await localizationSetup(f);const imported=await loc.api('/localization/datasets/'+loc.loc.id+'/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(loc.payload)});console.log('定位验收URL /localization/datasets/'+loc.loc.id+'/records/'+imported.record.id);console.log('隔离测试预览就绪；admin / test-admin-12345；不是生产资源');const stop=async()=>{await f.close();process.exit(0)};process.on('SIGTERM',stop);process.on('SIGINT',stop);
