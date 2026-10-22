@@ -52,3 +52,6 @@ sudo bash deploy/deploy.sh
 预览只在当前云端任务服务存活期间可用，隔离PG/mock对象数据临时，不是云端持久化生产。GitHub推送不自动更新现有ECS。未实测真实OSS/RDS/RAM Role/systemd/跨浏览器及Windows桌面；HTTP仍需CLI显式允许且明文风险不变。真实云资源联调应在用户升级ECS后完成。
 
 后续列表简化已检查：歌曲表移除缩略图列与底部重复管理区；行内歌曲信息仍打开名称/songGroupKey/训练用途表单且不会误开编辑器。构建、两份JS语法检查、git diff --check及隔离Chrome实际表格/弹窗检查通过；此次纯UI调整未重复运行后端全套测试。截图任务路径 `/workspace/scratch/omr-song-list-compact.jpg`。
+
+后续用户要求取消浏览器本地内容存储：已停止草稿IndexedDB读写和恢复入口；仅页面内存保留未保存修改，服务端保存方式不变，离开/退出需保存或放弃，刷新/关闭继续提醒。旧存储不删除，手动JSON导出保留。此项替代此前本地草稿恢复设计。
+构建、JS语法和diff检查通过；隔离Chrome验证首页无本地草稿区、未保存离开弹窗、明确放弃后重开恢复服务端music页及原version12。截图 `/workspace/scratch/omr-no-local-drafts.jpg`。仅前端存储策略调整，未重复执行后端测试。
