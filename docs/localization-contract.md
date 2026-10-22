@@ -37,7 +37,7 @@ JSON
 
 例中的SHA与UUID须替换为实际映射值，不是可直接导入的测试数据。单次请求/CLI输入最多2MiB；每记录1–100页、1000小节轨道、每小节5000事件、总事件20000。需要逐语料导入，记录返回id/version/warnings，并保留迁移报告，不将raw accepted总数当独立金标。
 
-幂等键：dataset + sample_id + revision + 来源平台UUID/实际与历史SHA集合摘要。同键同原始输入返回`idempotent:true`及当前记录；不同输入409，不覆盖。新的revision需要人工复核，原geometry_reviewed/accepted只保留来源，永不自动平台确认。
+幂等键：dataset + sample_id + revision + 实际与历史来源SHA集合摘要。同键同原始输入返回`idempotent:true`及当前记录；不同输入409，不覆盖。新的revision需要人工复核，原geometry_reviewed/accepted只保留来源，永不自动平台确认。
 
 编码不同但解码RGB一致时，可在顶层增加：
 

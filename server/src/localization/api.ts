@@ -400,11 +400,14 @@ export function registerLocalization(
         const sourceHash = fingerprint(
             pages
               .map((p) => ({
-                id: p.sourcePageId,
                 sha: p.sourceSha,
                 historicalSha: p.historicalSha || p.sourceSha,
               }))
-              .sort((a, b) => a.id.localeCompare(b.id)),
+              .sort(
+                (a, b) =>
+                  a.sha.localeCompare(b.sha) ||
+                  a.historicalSha.localeCompare(b.historicalSha),
+              ),
           ),
           inputHash = fingerprint({
             corpus,

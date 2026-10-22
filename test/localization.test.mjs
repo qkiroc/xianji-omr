@@ -53,6 +53,14 @@ test("定位真实PG：不同页ID映射、来源完整附件、精度、幂等�
     ).total,
     1,
   );
+  const aliasPage = await s.api(
+    "/songs/" + s.song.id + "/pages",
+    { method: "POST", headers: { "Content-Type": "image/png" }, body: s.bytes },
+    201,
+  );
+  const alias = structuredClone(s.payload);
+  alias.sourcePageMap["different-local-page"] = aliasPage.image.id;
+  await s.api(path, json(alias), 409);
   const otherSong = await s.api(
       "/datasets/" + s.dataset.id + "/songs",
       json({
