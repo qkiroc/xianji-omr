@@ -89,3 +89,9 @@ sudo bash deploy/deploy.sh
 迁移前脚本照常备份并校验；迁移失败不启动新版。schema 1 旧程序不兼容 schema 2，健康检查失败时不能回退到旧 schema 1 release，脚本会停服保留备份，禁止手工用旧程序写新版数据库。后续 schema 2 兼容版本仍按原有健康检查与回退流程执行。AF_NETLINK 的 systemd 修复保留。冻结快照在私有 OSS omr/ 前缀下存储两个导出包，服务端认证下载；账号须具有该前缀原有读写权限。不要把服务配置设为超级用户。
 
 本轮没有连接生产 ECS、真实 OSS 或 RDS；此前已上线服务的状态不由本轮测试推断。升级后需在 ECS 实际验证上传、保存、重开、确认和导出。训练、模型上传和识谱不在本轮范围。
+
+## 独立 CLI 授权升级（schema 3）
+
+在现有仓库执行 `git pull --ff-only` 后 `sudo bash deploy/deploy.sh`。003仅新增CLI授权请求与grant表/索引，保留原图、标注、快照及网站会话；凭证只存hash。迁移前备份与部署锁沿用；失败不重置数据库。schema2旧release不兼容schema3，禁止手工回退旧代码写库。AF_NETLINK保留，不修改8787或既有配置。
+
+生产归档仍为package.json/package-lock.json/web/server/deploy，无workspaces或CLI依赖；授权网页/API随原归档发布，本地CLI不需安装在ECS。现有HTTP origin可显式允许，无需本轮配置证书，但不能视为加密传输或标准OAuth公网TLS部署。只有部署本版本后CLI浏览器授权才可用。本轮仅隔离PG/mock OSS测试，未部署生产。

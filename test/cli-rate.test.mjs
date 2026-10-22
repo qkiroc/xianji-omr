@@ -1,0 +1,2 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {createLimiter} from '../server/src/rate-limit.mjs';
+test('限流器容量有界：持续不同来源拒绝不插入，过期回收恢复可用',()=>{let time=0;const rate=createLimiter({capacity:2000,windowMs:100,now:()=>time});for(let i=0;i<2000;i++)assert.equal(rate.allow('ip-'+i,2),true);for(let i=2000;i<20000;i++)assert.equal(rate.allow('ip-'+i,2),false);assert.equal(rate.size,2000);assert.equal(rate.allow('ip-0',2),true);assert.equal(rate.allow('ip-0',2),false);time=101;assert.equal(rate.allow('new',2),true);assert.equal(rate.size,1)});

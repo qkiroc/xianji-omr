@@ -30,3 +30,14 @@ npm run dev
 快捷键：V选择、R画框、H平移、空格/中键拖动平移、滚轮围绕鼠标缩放、Delete删除、Ctrl/⌘Z撤销、Shift+Ctrl/⌘Z重做。拖拽结束形成一次撤销记录。视图调整不进入标注撤销历史；刷新/重新打开会重置内存撤销栈，保留图片/标注草稿。
 
 生产源文件为web/index.html、server/与deploy/；构建将网页复制到server/static，API为原生ESM。没有外部CDN、前端密钥、GitHub自动部署或PR。
+
+## 独立 CLI（平台升级后使用）
+
+[完整用法与离线分发](tools/cli/README.md)。仅需Node >=22.18.0，无自定义npm包、workspace或MCP。
+
+```bash
+node tools/cli/xianji-omr.mjs --version
+node tools/cli/xianji-omr.mjs auth --origin http://116.62.12.100:8790 --allow-insecure-http
+```
+
+浏览器登录后明确批准，凭证按origin隔离，可在网页“CLI授权”撤销。HTTP是明文传输，PKCE不替代HTTPS。当前平台须先升级到schema3才有授权接口；推送GitHub不会自动更新ECS。原服务依赖/构建仍使用现有npm命令。
