@@ -1,0 +1,25 @@
+{
+  "host": "0.0.0.0",
+  "port": 8790,
+  "origin": "https://omr.example.com",
+  "secureCookie": true,
+  "username": "admin",
+  "passwordHash": "<由交互部署器生成scrypt哈希>",
+  "database": {
+    "host": "pgm-2ze5en6164xx9e2l.pg.rds.aliyuncs.com",
+    "port": 5432,
+    "database": "xianji_omr",
+    "user": "xianji_omr",
+    "password": "<仅在ECS终端安全输入>",
+    "sslMode": "verify-full",
+    "caFile": "/etc/xianji-omr/rds-ca.pem"
+  },
+  "oss": {
+    "bucket": "xianji-source",
+    "region": "oss-cn-beijing",
+    "endpoint": "https://oss-cn-beijing-internal.aliyuncs.com",
+    "prefix": "omr/",
+    "authMode": "ram",
+    "roleName": ""
+  }
+}
