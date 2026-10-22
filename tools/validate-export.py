@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate locally downloaded OMR detection.zip and optional crops.zip; stdlib only."""
 import json, hashlib, zipfile, sys, math
-CATEGORIES=['system','guitar','melody','lyrics','chord_marks','staff_notation','other_tab']
+BASE_CATEGORIES=['system','guitar','melody','lyrics','chord_marks','staff_notation','other_tab']
 def canonical(value):
     # Server uses explicit stable JSON; numbers in this metadata are integers.
     return json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False)
@@ -9,7 +9,8 @@ def validate(path):
     with zipfile.ZipFile(path) as z:
         names=z.namelist();assert len(names)==len(set(names)), 'duplicate ZIP paths'
         assert all(not n.startswith('/') and '..' not in n.split('/') for n in names),'unsafe ZIP path'
-        m=json.loads(z.read('manifest.json'));assert m['taxonomyVersion']=='layout-v1' and m['schemaVersion']==2
+        m=json.loads(z.read('manifest.json'));assert m['taxonomyVersion'] in ['layout-v1','layout-v2'] and m['schemaVersion']==2
+        CATEGORIES=BASE_CATEGORIES+(['title','performer','time_signature','key_signature','tempo','capo'] if m['taxonomyVersion']=='layout-v2' else [])
         assert [(c['id'],c['key'],c['cocoId']) for c in m['categories']]==[(i,k,i+1) for i,k in enumerate(CATEGORIES)]
         for name,expected in m['fileChecksums'].items():
             h=hashlib.sha256()
@@ -32,17 +33,18 @@ def validate(path):
                 assert b['x']>=0 and b['y']>=0 and b['width']>0 and b['height']>0 and b['x']+b['width']<=w and b['y']+b['height']<=h
                 if b['parentSystemId']:
                     p=boxes[b['parentSystemId']];assert p['classKey']=='system';assert b['x']>=p['x'] and b['y']>=p['y'] and b['x']+b['width']<=p['x']+p['width'] and b['y']+b['height']<=p['y']+p['height']
-                elif b['classKey'] not in ['system','chord_marks']:raise AssertionError('missing parent')
+                elif b['classKey'] not in ['system','chord_marks','title','performer','time_signature','key_signature','tempo','capo']:raise AssertionError('missing parent')
         assert sum(len(i['aliases']) for i in native)==m['stats']['sourcePages']
         assert len(native)==m['stats']['uniqueImages'];assert sum(len(i['boxes']) for i in native)==m['stats']['uniqueBoxes']
         if m['artifact']=='detection':
-            coco=json.loads(z.read('annotations.coco.json'));assert [c['id'] for c in coco['categories']]==list(range(1,8));assert len(coco['images'])==len(native)
+            coco=json.loads(z.read('annotations.coco.json'));assert [c['id'] for c in coco['categories']]==list(range(1,len(CATEGORIES)+1));assert len(coco['images'])==len(native)
             assert json.loads(z.read('annotations.native.json'))==native
             for image in native:
                 w=image['coordinate']['working']['width'];h=image['coordinate']['working']['height'];lines=z.read(f"labels/{image['split']}/{image['id']}.txt").decode().splitlines();assert len(lines)==len(image['boxes'])
                 anns=[a for a in coco['annotations'] if a['image_id']==image['imageId']];assert len(anns)==len(lines)
                 for b,line,a in zip(image['boxes'],lines,anns):
                     cls,cx,cy,bw,bh=map(float,line.split());reconstructed=[(cx-bw/2)*w,(cy-bh/2)*h,bw*w,bh*h]
+                    assert a.get('metadata')==b.get('metadata')
                     assert int(cls)==CATEGORIES.index(b['classKey']) and a['category_id']==int(cls)+1
                     assert all(abs(x-b[k])<.01 and abs(y-b[k])<.01 for x,y,k in zip(reconstructed,a['bbox'],['x','y','width','height'])),'coordinate roundtrip'
                 assert hashlib.sha256(z.read(image['originalPath'])).hexdigest()==image['coordinate']['original']['checksum']
@@ -50,7 +52,7 @@ def validate(path):
         else:
             mapping=json.loads(z.read('sources.json'));assert len(mapping)==m['stats']['uniqueBoxes']
             for crop in mapping:
-                image=next(i for i in native if i['id']==crop['sourceImageId']);b=next(b for b in image['boxes'] if b['id']==crop['regionId']);assert crop['box']=={k:b[k] for k in ['x','y','width','height']};assert crop['parentSystemId']==b['parentSystemId'];assert crop['workingChecksum']==image['coordinate']['working']['checksum']
+                image=next(i for i in native if i['id']==crop['sourceImageId']);b=next(b for b in image['boxes'] if b['id']==crop['regionId']);assert crop['box']=={k:b[k] for k in ['x','y','width','height']};assert crop['parentSystemId']==b['parentSystemId'];assert crop['workingChecksum']==image['coordinate']['working']['checksum'];assert crop.get('metadata')==b.get('metadata')
         return m
 if __name__=='__main__':
     if len(sys.argv)<2:raise SystemExit('用法: python3 tools/validate-export.py detection.zip [crops.zip]')

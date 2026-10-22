@@ -1,4 +1,7 @@
 export const COMMANDS=[
+ ['regions review','POST','/api/v2/pages/:pageId/regions/:regionId/review'],['regions restore','POST','/api/v2/pages/:pageId/regions/:regionId/restore'],
+ ['songs catalogue','GET','/api/v2/datasets/:datasetId/song-records'],['songs delete','POST','/api/v2/datasets/:datasetId/songs/delete'],['songs restore','POST','/api/v2/datasets/:datasetId/songs/restore'],['pages reorder','POST','/api/v2/songs/:songId/pages/reorder'],
+ ['datasets delete','POST','/api/v2/datasets/:datasetId/delete'],['datasets restore','POST','/api/v2/datasets/:datasetId/restore'],['records list','GET','/api/v2/datasets/:datasetId/pages'],['records neighbors','GET','/api/v2/datasets/:datasetId/pages/:pageId/neighbors'],['records delete','POST','/api/v2/datasets/:datasetId/pages/delete'],['records restore','POST','/api/v2/datasets/:datasetId/pages/restore'],
  ['taxonomy','GET','/api/v2/taxonomy'],
  ['datasets list','GET','/api/v2/datasets'],['datasets create','POST','/api/v2/datasets'],['datasets update','PUT','/api/v2/datasets/:datasetId'],
  ['songs list','GET','/api/v2/datasets/:datasetId/songs'],['songs create','POST','/api/v2/datasets/:datasetId/songs'],['songs update','PUT','/api/v2/songs/:songId'],

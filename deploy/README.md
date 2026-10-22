@@ -16,7 +16,7 @@
 
    如控制台已经创建了该数据库，不重复 CREATE DATABASE；管理员核对 owner 为专用账号即可。服务和迁移均使用普通账号，绝不要求超级用户。已有库/表不变。首次迁移拒绝包含未知 public 表的数据库。
 2. 核对 ECS 到 RDS 网络可达。默认内网 `pgm-2ze5en6164xx9e2l.pg.rds.aliyuncs.com:5432`；不同地域/VPC不保证互通，必要时显式配置已存在外网 `pgm-2ze5en6164xx9e2lco.pg.rds.aliyuncs.com:5432`，白名单由你按现有网络策略管理。数据库默认 TLS verify-full；准备可信 RDS CA 文件，root 所有、服务组可读不可写（0640），或使用已被系统信任的 CA。只有你明确选 disable 才关闭 DB TLS。
-3. 保持现有私有 Bucket `xianji-source`（北京）及禁止公共访问。为 ECS 绑定已有最小权限 RAM Role（推荐），或准备仅限应用前缀的凭据。对象默认使用 `omr/`，只能配置其子前缀。最小对象权限为 `oss:PutObject`、`oss:GetObject`、`oss:DeleteObject`，Resource 为 `acs:oss:*:*:xianji-source/omr/*`（如使用子前缀可进一步收紧）。DeleteObject 只用于上传后数据库失败的补偿，无删除图片 API；不需要 ListBucket/PutBucketAcl/PutObjectAcl 或 CORS 修改。RAM Role 自动发现/可指定名称，凭据由官方 SDK 获取并更新；也支持 STS/AK。手工 STS 到期需由管理员在受限配置更新，长期服务优先 RAM Role。
+3. 保持现有私有 Bucket `xianji-source`（北京）及禁止公共访问。为 ECS 绑定已有最小权限 RAM Role（推荐），或准备仅限应用前缀的凭据。对象默认使用 `omr/`，只能配置其子前缀。最小对象权限为 `oss:PutObject`、`oss:GetObject`、`oss:DeleteObject`，Resource 为 `acs:oss:*:*:xianji-source/omr/*`（如使用子前缀可进一步收紧）。DeleteObject 只用于上传后数据库失败的补偿，业务软删除不删除OSS对象；不需要 ListBucket/PutBucketAcl/PutObjectAcl 或 CORS 修改。RAM Role 自动发现/可指定名称，凭据由官方 SDK 获取并更新；也支持 STS/AK。手工 STS 到期需由管理员在受限配置更新，长期服务优先 RAM Role。
 4. 确定网页访问 Origin（协议+主机+端口，不含路径，例如 `https://omr.example.com`）。生产建议在已有 HTTPS 反向代理后使用 `127.0.0.1:8790`，正确保留同源 Host/Origin；脚本不自动安装证书或修改现有代理。直接 HTTP 访问可显式配置 `http://ECS地址:8790` + `0.0.0.0`，Cookie不带Secure；此方式登录与图片会明文传输。不要把示例域名照抄为实际配置。
 
 ## 首次部署
@@ -73,7 +73,7 @@ Node客户端安装在应用自身runtime，不覆盖系统Node。PG客户端由
 
 本任务没有登录/部署ECS、没有访问真实OSS/RDS。通过的是云端隔离PostgreSQL18.1 + mock OSS测试、浏览器流程及脚本静态检查；Alibaba Cloud Linux 3工具链安装、systemd实际启动、RAM Role/STS/AK、TLS与真实网络均需首次ECS执行后验收。部署成功健康检查只证明同源网页与数据库schema可用；首次上传/保存/刷新/重新打开图片才验证OSS/RDS全链路。
 
-上传最大20MB、边长20000、5000万像素，PNG/JPEG/WebP静态图（不支持动画），最多5000框/图；数据集工作台按曲目打开多页原图。单管理员，无公开注册。未保存草稿暂存浏览器IndexedDB，服务端确认后才显示云端已保存；409不覆盖，导出备份后从图片库打开最新版本。上传OSS失败不写DB；DB失败尽力删除本次对象，清理失败记安全对象ID供管理员核对，极端断电可能留孤立对象，不会伪报已保存。不自动删除原图/图片记录。
+上传最大20MB、边长20000、5000万像素，PNG/JPEG/WebP静态图（不支持动画），最多5000框/图；数据集工作台按曲目打开多页原图。单管理员，无公开注册。未保存草稿暂存浏览器IndexedDB，服务端确认后才显示云端已保存；409不覆盖，导出备份后从图片库打开最新版本。上传OSS失败不写DB；DB失败尽力删除本次对象，清理失败记安全对象ID供管理员核对，极端断电可能留孤立对象，不会伪报已保存。业务删除仅为可恢复状态，不永久删除原图。
 
 ## 从已有切图工具升级到数据集平台
 
@@ -95,3 +95,13 @@ sudo bash deploy/deploy.sh
 在现有仓库执行 `git pull --ff-only` 后 `sudo bash deploy/deploy.sh`。003仅新增CLI授权请求与grant表/索引，保留原图、标注、快照及网站会话；凭证只存hash。迁移前备份与部署锁沿用；失败不重置数据库。schema2旧release不兼容schema3，禁止手工回退旧代码写库。AF_NETLINK保留，不修改8787或既有配置。
 
 生产归档仍为package.json/package-lock.json/web/server/deploy，无workspaces或CLI依赖；授权网页/API随原归档发布，本地CLI不需安装在ECS。现有HTTP origin可显式允许，无需本轮配置证书，但不能视为加密传输或标准OAuth公网TLS部署。只有部署本版本后CLI浏览器授权才可用。本轮仅隔离PG/mock OSS测试，未部署生产。
+
+## 数据集/歌曲目录及元信息升级（schema 4）
+
+现有安装执行同一命令：`git pull --ff-only`，然后`sudo bash deploy/deploy.sh`。004是增量迁移，新增数据集/歌曲/谱页独立deleted_at、图片source/annotation_version/deleted_boxes及索引；不改旧SQL校验和、不重写原七类ID/框/对象，不删除现有会话或CLI授权，不重写已冻结包。schema3数据和授权升4且重复迁移已在隔离PG18验证。
+
+迁移前备份照常执行。旧schema3 release的声明不兼容schema4；健康检查失败不能回退运行旧程序写新库，脚本按兼容策略停止并保留备份/release，禁止手动reset/drop/覆盖库。AF_NETLINK与独立端口8790保留，不改8787服务或访问控制。此次没有操作生产；真实OSS/RDS和systemd须由ECS升级后验收。
+
+删除与恢复只改数据库状态及版本，父数据集/歌曲不可用时其页面内容、读写、上传、确认和新快照均拒绝。恢复父级不恢复先前独立删除的子项。原OSS对象与历史冻结包保留，旧包仍可认证下载，后续新快照只选活跃确认页。新歌曲表服务端分页，不改变曲目级split隔离；编辑器左侧拖拽页序为原子乐观锁操作，不修改框内容和确认状态。schema4当前仅允许新版程序运行。
+
+裁片检查视图无需新增服务或OSS权限。004的deleted_boxes保留已移除区域；框复核状态随boxes保存，旧类别/快照保持解释。网页复核与CLI接口继续走既有会话/Bearer scope，不新增密码、公开链接或外部服务。
