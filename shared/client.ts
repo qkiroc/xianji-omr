@@ -55,7 +55,7 @@ export interface PageImage {
   version: number;
   songId: string;
   datasetId: string;
-  status: "draft" | "confirmed";
+  status: "draft" | "ai_reviewed" | "confirmed";
   pageOrder: number;
   pageType: "music" | "negative";
   annotationFormat: string;

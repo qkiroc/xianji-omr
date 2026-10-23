@@ -393,14 +393,12 @@ export function registerPages(router: any, { pool, storage, config }: any) {
             taxonomyVersion: p.annotation_version || TAXONOMY,
           },
         );
-        return pageValue(
-          (
-            await c.query(
-              "UPDATE omr_images SET status='confirmed',boxes=(SELECT COALESCE(jsonb_agg(b||jsonb_build_object('reviewStatus','confirmed')),'[]'::jsonb) FROM jsonb_array_elements(boxes) b),version=version+1,updated_at=now() WHERE id=$1 RETURNING omr_images.*,(SELECT dataset_id FROM omr_songs WHERE id=omr_images.song_id) AS dataset_id",
-              [p.id],
-            )
-          ).rows[0],
-        );
+        const reviewType = req.body.reviewType ?? "human";
+        need(["human", "ai"].includes(reviewType), "复核类型无效");
+        return pageValue((await c.query(
+          "UPDATE omr_images SET status=$2,boxes=(SELECT COALESCE(jsonb_agg(CASE WHEN $2='confirmed' THEN b||jsonb_build_object('reviewStatus','confirmed') ELSE b||jsonb_build_object('reviewStatus','draft') END),'[]'::jsonb) FROM jsonb_array_elements(boxes) b),version=version+1,updated_at=now() WHERE id=$1 RETURNING omr_images.*,(SELECT dataset_id FROM omr_songs WHERE id=omr_images.song_id) AS dataset_id",
+          [p.id, reviewType === "ai" ? "ai_reviewed" : "confirmed"],
+        )).rows[0]);
       }),
     ),
   );

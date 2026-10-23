@@ -10,7 +10,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-export const SCHEMA = 6,
+export const SCHEMA = 7,
   LOCK = 79142602;
 export async function files(
   dir: any = new URL("../migrations/", import.meta.url),

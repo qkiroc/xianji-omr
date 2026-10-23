@@ -27,7 +27,7 @@ export function registerSongCatalogue(router: any, { pool }: any) {
             "删除状态无效",
           );
           need(
-            !q.status || ["draft", "confirmed", "legacy"].includes(q.status),
+            !q.status || ["draft", "ai_reviewed", "confirmed", "legacy"].includes(q.status),
             "复核状态无效",
           );
           need(
@@ -54,10 +54,11 @@ export function registerSongCatalogue(router: any, { pool }: any) {
             params.push(q.search);
             where += ` AND (position(lower($${params.length}) in lower(s.name))>0 OR position(lower($${params.length}) in lower(s.song_group_key))>0 OR EXISTS(SELECT 1 FROM omr_images x WHERE x.song_id=s.id AND x.deleted_at IS NULL AND (position(lower($${params.length}) in lower(x.original_name))>0 OR position(lower($${params.length}) in lower(x.source))>0)))`;
           }
-          const aggregate = `SELECT s.*,count(i.id) FILTER(WHERE i.deleted_at IS NULL)::int page_count,count(i.id) FILTER(WHERE i.deleted_at IS NULL AND i.status='confirmed')::int confirmed_count,count(i.id) FILTER(WHERE i.deleted_at IS NULL AND i.annotation_format='legacy')::int legacy_count,COALESCE(sum(jsonb_array_length(i.boxes)) FILTER(WHERE i.deleted_at IS NULL),0)::int box_count,${revisionSQL} page_revision,GREATEST(s.created_at,COALESCE(max(i.updated_at),s.created_at)) updated_at,(array_agg(i.id ORDER BY i.page_order,i.id) FILTER(WHERE i.deleted_at IS NULL))[1] first_page_id FROM omr_songs s LEFT JOIN omr_images i ON i.song_id=s.id WHERE ${where} GROUP BY s.id`;
+          const aggregate = `SELECT s.*,count(i.id) FILTER(WHERE i.deleted_at IS NULL)::int page_count,count(i.id) FILTER(WHERE i.deleted_at IS NULL AND i.status='confirmed')::int confirmed_count,count(i.id) FILTER(WHERE i.deleted_at IS NULL AND i.status='ai_reviewed')::int ai_reviewed_count,count(i.id) FILTER(WHERE i.deleted_at IS NULL AND i.annotation_format='legacy')::int legacy_count,COALESCE(sum(jsonb_array_length(i.boxes)) FILTER(WHERE i.deleted_at IS NULL),0)::int box_count,${revisionSQL} page_revision,GREATEST(s.created_at,COALESCE(max(i.updated_at),s.created_at)) updated_at,(array_agg(i.id ORDER BY i.page_order,i.id) FILTER(WHERE i.deleted_at IS NULL))[1] first_page_id FROM omr_songs s LEFT JOIN omr_images i ON i.song_id=s.id WHERE ${where} GROUP BY s.id`;
           let having = "";
           if (q.status === "confirmed")
             having = " WHERE page_count>0 AND confirmed_count=page_count";
+          if (q.status === "ai_reviewed") having = " WHERE ai_reviewed_count>0";
           if (q.status === "draft")
             having = " WHERE page_count=0 OR confirmed_count<page_count";
           if (q.status === "legacy") having = " WHERE legacy_count>0";

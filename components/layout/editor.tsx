@@ -329,11 +329,11 @@ export function LayoutEditor({
         b.reviewStatus = "draft";
       }
     });
-  const confirmPage = async (unconfirm = false) => {
+  const confirmPage = async (unconfirm = false, reviewType: "human" | "ai" = "human") => {
     try {
       if (
         !unconfirm &&
-        !window.confirm("我已检查全部目标与漏标情况；负样本确实无目标。")
+        !window.confirm(reviewType === "ai" ? "标记为 AI 已复核；此状态不等于人工确认，不纳入确认数据导出。" : "我已检查全部目标与漏标情况；负样本确实无目标。")
       )
         return;
       if (dirty) await save();
@@ -343,7 +343,7 @@ export function LayoutEditor({
           current.image.id +
           "/" +
           (unconfirm ? "unconfirm" : "confirm"),
-        json({ version: current.image.version, acknowledged: true }),
+        json({ version: current.image.version, acknowledged: true, reviewType }),
       );
       setDoc(result);
       docRef.current = result;
@@ -451,7 +451,7 @@ export function LayoutEditor({
               ? "未保存"
               : doc?.image.status === "confirmed"
                 ? "已确认"
-                : "草稿"}
+                : doc?.image.status === "ai_reviewed" ? "AI 已复核" : "草稿"}
           </span>
           <button
             disabled={!doc || busy || !dirty}
@@ -464,6 +464,9 @@ export function LayoutEditor({
             onClick={() => void confirmPage(true)}
           >
             取消确认
+          </button>
+          <button disabled={!doc || busy} onClick={() => void confirmPage(false, "ai")}>
+            AI 已复核
           </button>
           <button
             disabled={!doc || busy}

@@ -146,6 +146,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
         >
           <option value="">全部复核状态</option>
           <option value="draft">草稿</option>
+          <option value="ai_reviewed">AI 已复核</option>
           <option value="confirmed">已确认</option>
           <option value="legacy">历史未归类</option>
         </select>
@@ -236,12 +237,12 @@ export function SongList({ datasetId }: { datasetId: string }) {
                       (!deleted &&
                       s.status === "confirmed"
                         ? "confirmed"
-                        : "")
+                        : s.status === "ai_reviewed" ? "ai-reviewed" : "")
                     }
                   >
                     {deleted
                       ? "已删除"
-                      : s.status === "confirmed" ? "已确认" : "待标记"}
+                      : s.status === "confirmed" ? "已确认" : s.status === "ai_reviewed" ? "AI 已复核" : "待标记"}
                   </span>
                 </td>
                 <td onClick={(e) => e.stopPropagation()}>

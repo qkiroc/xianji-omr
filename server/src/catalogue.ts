@@ -5,7 +5,7 @@ export function pageFilter(datasetId: any, q: any = {}) {
   need(ID.test(datasetId), "数据集ID无效");
   need(!q.deleted || ["active", "deleted"].includes(q.deleted), "删除状态无效");
   need(
-    !q.status || ["draft", "confirmed", "legacy"].includes(q.status),
+    !q.status || ["draft", "ai_reviewed", "confirmed", "legacy"].includes(q.status),
     "复核状态无效",
   );
   need(!q.split || ["train", "val", "test"].includes(q.split), "split无效");

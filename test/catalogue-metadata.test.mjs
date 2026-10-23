@@ -21,7 +21,7 @@ test('数千页服务端分页/稳定排序/搜索筛选计数与邻居，批处
 
 async function setupGrant(f){return grantFor(f,await cookieFor(f))}
 
-test('schema3带旧页/会话/CLI grant/ready快照升级4且幂等，原授权持续有效',async t=>{const f=await fixture({port:55453,migrationVersion:3});t.after(()=>f.close());const cookie=await cookieFor(f),grant=await grantFor(f,cookie),page='11111111-1111-4111-8111-111111111114',boxes=[{id:'legacy',x:1,y:2,width:10,height:11}];await f.pool.query("INSERT INTO omr_images(id,object_key,original_name,mime,width,height,checksum,boxes,version) VALUES($1,'omr/old','old.png','image/png',30,40,repeat('b',64),$2,9)",[page,JSON.stringify(boxes)]);const snapshot=(await f.pool.query("INSERT INTO omr_snapshots(id,dataset_id,frozen,status,manifest,artifacts) VALUES(gen_random_uuid(),'00000000-0000-4000-8000-000000000001',$1,'ready',$2,$3) RETURNING *",[{taxonomyVersion:'layout-v1',kept:'snapshot'},{kept:'manifest'},{kept:'artifacts'}])).rows[0];await withLock(f.pool,c=>migrate(c));await withLock(f.pool,c=>migrate(c));assert.equal(await checkHistory(f.pool),6);const r=await request(f,'/api/v2/taxonomy',{headers:{Authorization:'Bearer '+grant.token}});assert.equal(r.status,200);assert.equal((await r.json()).taxonomyVersion,'layout-v2');assert.equal((await request(f,'/api/session',{headers:{Cookie:cookie}})).status,200);const old=(await f.pool.query('SELECT * FROM omr_images WHERE id=$1',[page])).rows[0];assert.equal(old.version,9);assert.deepEqual(old.boxes,boxes);assert.equal(old.annotation_version,'layout-v1');assert.equal(old.deleted_at,null);const kept=(await f.pool.query('SELECT * FROM omr_snapshots WHERE id=$1',[snapshot.id])).rows[0];assert.deepEqual(kept,snapshot)});
+test('schema3带旧页/会话/CLI grant/ready快照升级4且幂等，原授权持续有效',async t=>{const f=await fixture({port:55453,migrationVersion:3});t.after(()=>f.close());const cookie=await cookieFor(f),grant=await grantFor(f,cookie),page='11111111-1111-4111-8111-111111111114',boxes=[{id:'legacy',x:1,y:2,width:10,height:11}];await f.pool.query("INSERT INTO omr_images(id,object_key,original_name,mime,width,height,checksum,boxes,version) VALUES($1,'omr/old','old.png','image/png',30,40,repeat('b',64),$2,9)",[page,JSON.stringify(boxes)]);const snapshot=(await f.pool.query("INSERT INTO omr_snapshots(id,dataset_id,frozen,status,manifest,artifacts) VALUES(gen_random_uuid(),'00000000-0000-4000-8000-000000000001',$1,'ready',$2,$3) RETURNING *",[{taxonomyVersion:'layout-v1',kept:'snapshot'},{kept:'manifest'},{kept:'artifacts'}])).rows[0];await withLock(f.pool,c=>migrate(c));await withLock(f.pool,c=>migrate(c));assert.equal(await checkHistory(f.pool),7);const r=await request(f,'/api/v2/taxonomy',{headers:{Authorization:'Bearer '+grant.token}});assert.equal(r.status,200);assert.equal((await r.json()).taxonomyVersion,'layout-v2');assert.equal((await request(f,'/api/session',{headers:{Cookie:cookie}})).status,200);const old=(await f.pool.query('SELECT * FROM omr_images WHERE id=$1',[page])).rows[0];assert.equal(old.version,9);assert.deepEqual(old.boxes,boxes);assert.equal(old.annotation_version,'layout-v1');assert.equal(old.deleted_at,null);const kept=(await f.pool.query('SELECT * FROM omr_snapshots WHERE id=$1',[snapshot.id])).rows[0];assert.deepEqual(kept,snapshot)});
 test('歌曲维度分页/聚合/排序，完整页序原子交换、并发冲突与歌曲级永久删除',async t=>{
  const f=await fixture({port:55455});t.after(()=>f.close());const{api,ds,song,upload}=await setup(f);let a=await upload('第一页.png'),b=await upload('第二页.png'),c=await upload('单独删除.png');
  const catalogue=()=>api('/v2/datasets/'+ds.id+'/song-records?pageSize=25');let listed=await catalogue();assert.equal(listed.total,1);assert.equal(listed.items[0].page_count,3);assert.equal(listed.items[0].first_page_id,a.image.id);assert.equal((await api('/v2/datasets/'+ds.id+'/song-records?search=第一页')).total,1);assert.equal((await api('/v2/datasets/'+ds.id+'/song-records?status=confirmed')).total,0);
@@ -49,4 +49,22 @@ test('单页工作队列：跨歌曲跳过确认页、末尾循环、无待办�
  const isolated=await api('/v2/datasets',json({name:'隔离'}),201);await api('/v2/datasets/'+isolated.id+'/pages/'+a.image.id+'/neighbors',{},409);
  await f.pool.query("UPDATE omr_images SET status='confirmed' WHERE song_id=ANY($1::uuid[])",[[song.id,other.id]]);
  assert.equal((await next(c.image.id)).nextUnconfirmed,null);
+});
+
+test('AI复核：真实CLI、分页筛选、版本冲突、修改失效且不成为人工训练真值',async t=>{
+ const {home,authCli,runCli}=await import('./cli-helpers.mjs');
+ const f=await fixture({port:55459});t.after(()=>f.close());const {api,ds,upload}=await setup(f);
+ let p=await upload('ai.png');p=await api('/v2/pages/'+p.image.id+'/normalize',json({version:p.image.version}));
+ p=await api('/v2/pages/'+p.image.id,json({version:p.image.version,annotationFormat:'layout-v2',boxes:[root]},'PUT'));
+ const configHome=await home();assert.equal((await authCli(f,await cookieFor(f),configHome)).code,0);
+ const r=await runCli(f,['pages','confirm',p.image.id,'--version',String(p.image.version),'--acknowledge','--review-type','ai'],{configHome});assert.equal(r.code,0,r.stderr);p=r.value;assert.equal(p.image.status,'ai_reviewed');assert.equal(p.boxes[0].reviewStatus,'draft');
+ assert.equal((await api('/v2/datasets/'+ds.id+'/pages?status=ai_reviewed')).total,1);
+ assert.equal((await api('/v2/datasets/'+ds.id+'/pages?status=confirmed')).total,0);
+ assert.equal((await api('/v2/datasets/'+ds.id+'/songs'))[0].confirmed_count,0);
+ await assert.rejects(freezeSnapshot(f.pool,ds.id),/确认|数据|页面/);
+ await api('/v2/pages/'+p.image.id+'/confirm',json({version:p.image.version-1,acknowledged:true,reviewType:'ai'}),409);
+ await api('/v2/pages/'+p.image.id+'/confirm',json({version:p.image.version,acknowledged:true,reviewType:'invalid'}),400);
+ p=await api('/v2/pages/'+p.image.id,json({version:p.image.version,annotationFormat:'layout-v2',boxes:[{...root,width:190}]},'PUT'));assert.equal(p.image.status,'draft');
+ p=await api('/v2/pages/'+p.image.id+'/confirm',json({version:p.image.version,acknowledged:true,reviewType:'ai'}));
+ p=await api('/v2/pages/'+p.image.id+'/confirm',json({version:p.image.version,acknowledged:true}));assert.equal(p.image.status,'confirmed');assert.equal(p.boxes[0].reviewStatus,'confirmed');
 });
