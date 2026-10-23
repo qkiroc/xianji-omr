@@ -46,7 +46,13 @@ export class AnnotationCanvas {
       (e: any) => {
         e.preventDefault();
         const p = this.point(e);
-        this.zoom(this.scale * Math.exp(-e.deltaY * 0.0015), p.x, p.y);
+        if (e.ctrlKey || e.metaKey) {
+          this.zoom(this.scale * Math.exp(-e.deltaY * 0.0015), p.x, p.y);
+        } else {
+          this.ox -= e.deltaX;
+          this.oy -= e.deltaY;
+          this.render();
+        }
       },
       { passive: false, signal: this.abort.signal },
     );
@@ -54,11 +60,12 @@ export class AnnotationCanvas {
       "keydown",
       (e: any) => {
         if (
-          ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(
-            e.target.tagName,
-          ) ||
-          document.querySelector("dialog[open]") ||
-          !this.image
+          ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) ||
+          document.querySelector("dialog[open], .modal-backdrop") ||
+          e.target.isContentEditable ||
+          !this.stage.clientHeight ||
+          !this.image ||
+          (e.target.tagName === "BUTTON" && ["Space", "Enter"].includes(e.code))
         )
           return;
         if (e.code === "Space") {
@@ -69,12 +76,49 @@ export class AnnotationCanvas {
           e.preventDefault();
           e.shiftKey ? this.redo() : this.undo();
         }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+          e.preventDefault();
+          this.redo();
+        }
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (
+          ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) &&
+          this.selected
+        ) {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 1;
+          this.edit((boxes: any[]) => {
+            const b = boxes.find((b) => b.id === this.selected);
+            if (!b) return;
+            b.x = clamp(
+              b.x +
+                (e.key === "ArrowRight"
+                  ? step
+                  : e.key === "ArrowLeft"
+                    ? -step
+                    : 0),
+              0,
+              this.width - b.width,
+            );
+            b.y = clamp(
+              b.y +
+                (e.key === "ArrowDown"
+                  ? step
+                  : e.key === "ArrowUp"
+                    ? -step
+                    : 0),
+              0,
+              this.height - b.height,
+            );
+          });
+        }
         if (["Delete", "Backspace"].includes(e.key)) {
           e.preventDefault();
           this.remove();
         }
         if (e.key === "Escape") {
           this.finish(true);
+          this.setMode("select");
           this.select(null);
         }
         if (
@@ -175,6 +219,8 @@ export class AnnotationCanvas {
     this.setMode("select");
   }
   setMode(mode: any) {
+    this.finish();
+    if (mode === "draw" && this.mode !== "draw") this.select(null);
     this.mode = mode;
     this.stage.style.cursor =
       mode === "draw" ? "crosshair" : mode === "pan" ? "grab" : "default";
@@ -405,6 +451,10 @@ export class AnnotationCanvas {
         this.onChange(clone(this.boxes));
       }
     }
+    if (!this.boxes.some((b: any) => b.id === this.selected))
+      this.selected = null;
+    if (g.type === "draw" && !cancel && !this.continuousDrawing)
+      this.setMode("select");
     this.render();
     this.onSelect(this.selected);
   }
@@ -420,7 +470,8 @@ export class AnnotationCanvas {
     this.onSelect(this.selected);
   }
   remove() {
-    if (!this.selected) return;
+    if (!this.selected || !this.boxes.some((b: any) => b.id === this.selected))
+      return;
     const id = this.selected;
     this.edit((boxes: any) => {
       const b = boxes.find((b: any) => b.id === id);

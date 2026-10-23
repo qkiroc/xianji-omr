@@ -285,6 +285,16 @@ export function LocalizationEditor({
   }, [record]);
   saveRef.current = save;
   useDirty(dirty, save);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "s") return;
+      if (document.querySelector(".modal-backdrop")) return;
+      e.preventDefault();
+      if (dirty && !busy && recordRef.current) void save().catch(() => {});
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [dirty, busy, save]);
   const undo = (redo = false) => {
     const stack = redo ? future : history;
     if (!stack.length || !geometry) return;
@@ -480,12 +490,11 @@ export function LocalizationEditor({
       return;
     }
     commit(next, g.before);
+    if (g.kind === "draw") setMode("select");
     location({ measure: g.mid, event: g.eid });
   };
   const command = async (kind: "confirm" | "unconfirm") => {
     try {
-      if (dirty) await save();
-      const latest = recordRef.current!;
       if (
         kind === "confirm" &&
         !window.confirm(
@@ -493,6 +502,8 @@ export function LocalizationEditor({
         )
       )
         return;
+      if (dirty) await save();
+      const latest = recordRef.current!;
       const value = await api<LocalizationRecord>(
         "/v2/localization/records/" + recordId + "/" + kind,
         json({ version: latest.version, acknowledged: true }),
@@ -569,8 +580,14 @@ export function LocalizationEditor({
           >
             保存
           </button>
-          <button onClick={() => void command("unconfirm")}>撤销确认</button>
-          <button className="primary" onClick={() => void command("confirm")}>
+          <button disabled={busy} onClick={() => void command("unconfirm")}>
+            撤销确认
+          </button>
+          <button
+            disabled={busy}
+            className="primary"
+            onClick={() => void command("confirm")}
+          >
             确认几何与完整性
           </button>
         </div>

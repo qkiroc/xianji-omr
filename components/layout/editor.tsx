@@ -61,6 +61,7 @@ export function LayoutEditor({
     [deleted, setDeleted] = useState(false),
     [zoom, setZoom] = useState(1),
     [mode, setMode] = useState("select"),
+    [continuousDrawing, setContinuousDrawing] = useState(false),
     [history, setHistory] = useState({ undo: 0, redo: 0 }),
     [busy, setBusy] = useState(false),
     [imageRetry, setImageRetry] = useState(0);
@@ -205,11 +206,13 @@ export function LayoutEditor({
       setZoom(d.scale);
       setHistory({ undo: d.undo, redo: d.redo });
     };
-    const shortcut = (e: Event) =>
+    const shortcut = (e: Event) => {
       setCurrentClass(
         taxonomy.find((c) => c.id === (e as CustomEvent<number>).detail)?.key ||
           "system",
       );
+      c.setMode("draw");
+    };
     const modeListener = (e: Event) =>
       setMode((e as CustomEvent<string>).detail);
     document.addEventListener("class-shortcut", shortcut);
@@ -306,6 +309,19 @@ export function LayoutEditor({
     }
   }, [loadPages]);
   useDirty(dirty, save);
+  useEffect(() => {
+    if (canvas.current) canvas.current.continuousDrawing = continuousDrawing;
+  }, [continuousDrawing, taxonomy]);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "s") return;
+      if (document.querySelector(".modal-backdrop")) return;
+      e.preventDefault();
+      if (dirty && !busy && docRef.current) void save().catch(() => {});
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [dirty, busy, save]);
   const navigatePage = (p: PageImage) =>
     go(
       `${base}/songs/${p.songId}/pages/${p.id}?${useQueryString(new URLSearchParams(q), { box: undefined })}`,
@@ -374,12 +390,12 @@ export function LayoutEditor({
   };
   const confirmPage = async (unconfirm = false) => {
     try {
-      if (dirty) await save();
       if (
         !unconfirm &&
         !window.confirm("我已检查全部目标与漏标情况；负样本确实无目标。")
       )
         return;
+      if (dirty) await save();
       const current = docRef.current!;
       const result = await api<LayoutDocument>(
         "/v2/pages/" +
@@ -479,11 +495,14 @@ export function LayoutEditor({
           >
             保存
           </button>
-          <button disabled={!doc} onClick={() => void confirmPage(true)}>
+          <button
+            disabled={!doc || busy}
+            onClick={() => void confirmPage(true)}
+          >
             取消确认
           </button>
           <button
-            disabled={!doc}
+            disabled={!doc || busy}
             className="primary"
             onClick={() => void confirmPage()}
           >
@@ -504,6 +523,23 @@ export function LayoutEditor({
             {["选择 V", "画框 R", "平移 H"][i]}
           </button>
         ))}
+        <label className="inline-check">
+          <input
+            type="checkbox"
+            checked={continuousDrawing}
+            onChange={(e) => setContinuousDrawing(e.target.checked)}
+          />
+          连续画框
+        </label>
+        <button
+          disabled={!selected}
+          onClick={() => {
+            canvas.current?.setMode("select");
+            canvas.current?.select(null);
+          }}
+        >
+          显示全部框
+        </button>
         <button onClick={() => canvas.current?.zoom(zoom / 1.25)}>−</button>
         <select
           aria-label="视图缩放"
@@ -767,29 +803,49 @@ export function LayoutEditor({
             {doc
               ? `${doc.image.width}×${doc.image.height} px · v${doc.image.version}`
               : "选择或上传谱页"}{" "}
-            · {dirty ? "修改仅在当前页面" : "服务端已保存"}
+            · {dirty ? "修改仅在当前页面" : "服务端已保存"} ·{" "}
+            {mode === "draw"
+              ? "拖动绘制区域"
+              : mode === "pan"
+                ? "拖动画布"
+                : "拖动选中框 / 四角缩放"}{" "}
+            · 空格拖动平移 · Ctrl/⌘滚轮缩放
           </div>
         </div>
         <aside className="properties" hidden={view === "crops"}>
-          <h3>区域类别</h3>
+          <h3>新建框类别</h3>
+          <p className="muted small">
+            选择类别后，在原图拖出区域；已有框在下方属性中改类别。
+          </p>
           <div className="category-grid">
             {taxonomy.map((c) => (
               <button
                 key={c.key}
                 className={currentClass === c.key ? "active" : ""}
-                onClick={() => setCurrentClass(c.key)}
+                onClick={() => {
+                  setCurrentClass(c.key);
+                  classRef.current = c.key;
+                  canvas.current?.setMode("draw");
+                  canvas.current?.select(null);
+                }}
               >
                 {c.id} {c.name}
               </button>
             ))}
           </div>
           <h3>区域列表 {doc?.boxes.length || 0}</h3>
+          {selected && (
+            <p className="muted small">当前只显示选中框 · Esc 显示全部</p>
+          )}
           <div className="box-list">
             {doc?.boxes.map((b, i) => (
               <button
                 key={b.id}
                 className={b.id === selected ? "active" : ""}
-                onClick={() => canvas.current?.select(b.id)}
+                onClick={() => {
+                  canvas.current?.setMode("select");
+                  canvas.current?.focusRegion(b.id);
+                }}
               >
                 {i + 1} ·{" "}
                 {taxonomy.find((c) => c.key === b.classKey)?.name ||
@@ -798,6 +854,11 @@ export function LayoutEditor({
               </button>
             ))}
           </div>
+          {!selectedBox && (
+            <p className="muted small">
+              点击画布或区域列表选中一个框，再调整位置、大小与属性。
+            </p>
+          )}
           {selectedBox && (
             <>
               <label>
@@ -824,65 +885,83 @@ export function LayoutEditor({
                   ))}
                 </select>
               </label>
-              <label>
-                所属谱行
-                <select
-                  aria-label="所属谱行"
-                  value={selectedBox.parentSystemId || ""}
-                  onChange={(e) =>
-                    changeBox((b) => {
-                      b.parentSystemId = e.target.value || null;
-                    })
-                  }
-                >
-                  <option value="">无父谱行</option>
-                  {doc?.boxes
-                    .filter(
-                      (b) => b.classKey === "system" && b.id !== selectedBox.id,
-                    )
-                    .map((b) => (
-                      <option key={b.id}>{b.id}</option>
-                    ))}
-                </select>
-              </label>
-              <div className="coordinates">
-                {(["x", "y", "width", "height", "readingOrder"] as const).map(
-                  (key) => (
-                    <label key={key}>
-                      {key}
-                      <input
-                        aria-label={key}
-                        type="number"
-                        step={1}
-                        value={selectedBox[key]}
-                        onChange={(e) =>
-                          changeBox((b) => {
-                            b[key] = Number(e.target.value);
-                            if (key !== "readingOrder" && doc) {
-                              b.x = Math.max(
-                                0,
-                                Math.min(b.x, doc.image.width - 1),
-                              );
-                              b.y = Math.max(
-                                0,
-                                Math.min(b.y, doc.image.height - 1),
-                              );
-                              b.width = Math.max(
-                                1,
-                                Math.min(b.width, doc.image.width - b.x),
-                              );
-                              b.height = Math.max(
-                                1,
-                                Math.min(b.height, doc.image.height - b.y),
-                              );
-                            }
-                          })
+              <details className="advanced-properties">
+                <summary>高级属性 · 谱行关联与坐标</summary>
+                <label>
+                  所属谱行
+                  <select
+                    aria-label="所属谱行"
+                    value={selectedBox.parentSystemId || ""}
+                    onChange={(e) =>
+                      changeBox((b) => {
+                        b.parentSystemId = e.target.value || null;
+                      })
+                    }
+                  >
+                    <option value="">无父谱行</option>
+                    {doc?.boxes
+                      .filter(
+                        (b) =>
+                          b.classKey === "system" && b.id !== selectedBox.id,
+                      )
+                      .map((b) => (
+                        <option key={b.id} value={b.id}>
+                          谱行{" "}
+                          {doc!.boxes
+                            .filter((x) => x.classKey === "system")
+                            .findIndex((x) => x.id === b.id) + 1}{" "}
+                          · {b.x}, {b.y}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <div className="coordinates">
+                  {(["x", "y", "width", "height", "readingOrder"] as const).map(
+                    (key) => (
+                      <label key={key}>
+                        {
+                          {
+                            x: "左侧 X",
+                            y: "顶部 Y",
+                            width: "宽度",
+                            height: "高度",
+                            readingOrder: "阅读顺序",
+                          }[key]
                         }
-                      />
-                    </label>
-                  ),
-                )}
-              </div>
+                        <input
+                          aria-label={key}
+                          type="number"
+                          step={1}
+                          value={selectedBox[key]}
+                          onChange={(e) =>
+                            changeBox((b) => {
+                              b[key] = Number(e.target.value);
+                              if (key !== "readingOrder" && doc) {
+                                b.x = Math.max(
+                                  0,
+                                  Math.min(b.x, doc.image.width - 1),
+                                );
+                                b.y = Math.max(
+                                  0,
+                                  Math.min(b.y, doc.image.height - 1),
+                                );
+                                b.width = Math.max(
+                                  1,
+                                  Math.min(b.width, doc.image.width - b.x),
+                                );
+                                b.height = Math.max(
+                                  1,
+                                  Math.min(b.height, doc.image.height - b.y),
+                                );
+                              }
+                            })
+                          }
+                        />
+                      </label>
+                    ),
+                  )}
+                </div>
+              </details>
               {meta.includes(selectedBox.classKey || "") && (
                 <MetadataFields
                   box={selectedBox}

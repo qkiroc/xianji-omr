@@ -1089,3 +1089,34 @@ label > textarea {
   font-size: 13px;
   font-weight: 400;
 }
+.tools .inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 8px 0 0;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.tools .inline-check input {
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  margin: 0;
+}
+.caption {
+  line-height: 1.7;
+}
+
+.advanced-properties {
+  margin: 18px 0;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.advanced-properties summary {
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.advanced-properties[open] summary {
+  margin-bottom: 14px;
+}
