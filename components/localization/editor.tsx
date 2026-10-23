@@ -553,7 +553,10 @@ export function LocalizationEditor({
         </div>
         <span>小节与事件定位 · 几何任务</span>
         <div className="actions">
-          <span>
+          <span
+            className={"save-status " + (dirty ? "unsaved" : "saved")}
+            role="status"
+          >
             {dirty
               ? "未保存"
               : record.status === "confirmed"

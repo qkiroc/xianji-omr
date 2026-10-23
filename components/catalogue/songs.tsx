@@ -245,9 +245,20 @@ export function SongList({ datasetId }: { datasetId: string }) {
                 <td>{s.page_count}</td>
                 <td>{s.box_count}</td>
                 <td>
-                  {deleted
-                    ? "已删除"
-                    : `${s.confirmed_count}/${s.page_count}页已确认`}
+                  <span
+                    className={
+                      "review-chip " +
+                      (!deleted &&
+                      s.confirmed_count === s.page_count &&
+                      s.page_count > 0
+                        ? "confirmed"
+                        : "")
+                    }
+                  >
+                    {deleted
+                      ? "已删除"
+                      : `${s.confirmed_count}/${s.page_count}页已确认`}
+                  </span>
                 </td>
                 <td>{new Date(s.updated_at).toLocaleString()}</td>
                 <td onClick={(e) => e.stopPropagation()}>
@@ -265,6 +276,15 @@ export function SongList({ datasetId }: { datasetId: string }) {
                 </td>
               </tr>
             ))}
+            {!data.items.length && (
+              <tr>
+                <td colSpan={7}>
+                  <div className="table-empty">
+                    暂无符合条件的歌曲，请调整筛选或上传原图。
+                  </div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

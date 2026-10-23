@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "./ui/icon";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { api, json, ApiError } from "../shared/client";
@@ -61,11 +62,23 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <>
       {!editor && !cli && (
         <>
-          <header>
-            <b>弦记 OMR</b>
-            <span>数据标注工作台</span>
+          <header className="platform-header">
+            <div className="brand">
+              <span className="brand-mark">
+                <Icon name="layers" />
+              </span>
+              <b>
+                弦记 <em>OMR</em>
+              </b>
+            </div>
+            <span className="workspace-label">数据标注工作台</span>
             <div className="spacer" />
-            <span>{account}</span>
+            <span className="account">
+              <span className="avatar">
+                {account?.slice(0, 1).toUpperCase()}
+              </span>
+              {account}
+            </span>
             <button onClick={() => go("/cli/grants")}>CLI授权</button>
             <button
               onClick={async () => {
@@ -77,18 +90,26 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </button>
           </header>
           <nav className="platform-nav">
-            <p>数据工作区</p>
+            <p>工作空间</p>
             <button
+              aria-current={
+                !path.startsWith("/localization") ? "page" : undefined
+              }
               className={!path.startsWith("/localization") ? "active" : ""}
               onClick={() => go("/datasets")}
             >
-              切图标注
+              <Icon name="crop" />
+              <span>切图标注</span>
             </button>
             <button
+              aria-current={
+                path.startsWith("/localization") ? "page" : undefined
+              }
               className={path.startsWith("/localization") ? "active" : ""}
               onClick={() => go("/localization/datasets")}
             >
-              小节与事件定位
+              <Icon name="locate" />
+              <span>小节与事件定位</span>
             </button>
           </nav>
         </>

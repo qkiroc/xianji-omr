@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "../ui/icon";
 import { useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { api, json, Dataset } from "../../shared/client";
@@ -14,12 +15,14 @@ export function DatasetList({
   const { go } = useNavigation(),
     [items, setItems] = useState<(Dataset | LocDataset)[]>([]),
     [error, setError] = useState(""),
-    [create, setCreate] = useState(false);
+    [create, setCreate] = useState(false),
+    [loading, setLoading] = useState(true);
   const deleted = q.get("deleted") === "deleted";
   const base = localization ? "/localization/datasets" : "/datasets";
   const load = () => {
     const request = ++epoch.current;
     setError("");
+    setLoading(true);
     return api<(Dataset | LocDataset)[]>(
       "/v2" + base + (!localization && deleted ? "?deleted=deleted" : ""),
     )
@@ -28,6 +31,9 @@ export function DatasetList({
       })
       .catch((e) => {
         if (request === epoch.current) setError(e.message);
+      })
+      .finally(() => {
+        if (request === epoch.current) setLoading(false);
       });
   };
   useEffect(() => {
@@ -64,10 +70,15 @@ export function DatasetList({
         </div>
       </div>
       <p className="error">{error}</p>
-      <div className="cards">
+      <div className="catalogue-summary">
+        <span>{deleted ? "回收站" : "全部数据集"}</span>
+        <span>{loading ? "加载中…" : `${items.length} 个数据集`}</span>
+      </div>
+      <div className="cards" aria-busy={loading}>
         {items.map((d) => (
           <article key={d.id} className="card">
             <button
+              className="card-open"
               style={{
                 border: 0,
                 padding: 0,
@@ -77,6 +88,9 @@ export function DatasetList({
               disabled={deleted}
               onClick={() => go(base + "/" + d.id)}
             >
+              <div className="dataset-icon">
+                <Icon name="folder" />
+              </div>
               <h2>{d.name}</h2>
               <p className="muted">{d.description || "暂无描述"}</p>
               <div className="stats">
@@ -105,6 +119,7 @@ export function DatasetList({
             </button>
             {!localization && (
               <button
+                className="card-delete"
                 onClick={async () => {
                   const layout = d as Dataset;
                   if (
@@ -138,7 +153,22 @@ export function DatasetList({
           </article>
         ))}
       </div>
-      {!items.length && <p className="muted">暂无数据集，请新建。</p>}
+      {!loading && !items.length && !error && (
+        <div className="empty-state">
+          <Icon name="folder" />
+          <h2>{deleted ? "回收站为空" : "还没有数据集"}</h2>
+          <p>
+            {deleted
+              ? "已删除的数据集会显示在这里。"
+              : "新建数据集，开始整理歌曲与标注数据。"}
+          </p>
+          {!deleted && (
+            <button className="primary" onClick={() => setCreate(true)}>
+              ＋ 新建数据集
+            </button>
+          )}
+        </div>
+      )}
       {create && (
         <div className="modal-backdrop">
           <form

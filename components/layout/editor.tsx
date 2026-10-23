@@ -463,7 +463,10 @@ export function LayoutEditor({
           </button>
         </div>
         <div className="actions">
-          <span>
+          <span
+            className={"save-status " + (dirty ? "unsaved" : "saved")}
+            role="status"
+          >
             {dirty
               ? "未保存"
               : doc?.image.status === "confirmed"
