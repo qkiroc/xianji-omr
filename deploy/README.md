@@ -1,5 +1,22 @@
 # ECS 一键部署（独立 xianji-omr）
 
+## 当前推荐：ECS 单行源码构建部署
+
+已有仓库目录中执行：
+
+```bash
+git pull --ff-only && sudo bash deploy/deploy.sh --build-on-ecs
+```
+
+不需要下载预构建包。本参数替代默认产物模式；保留 `--artifact` 和高内存 `--build-from-source` 兼容。
+新安装先 `git clone https://github.com/qkiroc/xianji-omr.git && cd xianji-omr`，再执行上面命令；首次仍按下文准备独立库/OSS权限并在终端私密输入配置。
+
+针对约1.8GiB内存的ECS：构建前检查至少1GiB可用内存、10GiB可用磁盘；可用swap不足4GiB时创建应用专用4GiB临时swap，不写fstab。systemd临时构建单元限制RAM 768MiB、Node堆512MiB、CPU 50%、单Next worker、90分钟超时。安装锁定生产依赖后顺序类型检查与构建；不会因构建失败停止已有应用或进入迁移。配置、备份、迁移、原子切换和健康检查沿用原流程，不操作弦记8787。系统或文件系统不支持swap/systemd限制时明确失败，不无约束重试。swap会增加磁盘IO、可能影响同机延迟，构建时间可能很长，不能保证小内存机器一定构建成功或其他服务完全无性能波动。
+
+结束时停止临时构建单元并清理本次swap；swapoff失败则保留文件和启用状态、输出路径，待可用内存恢复后手动swapoff成功再删除，绝不直接删除仍启用的swap。不会清理已有swap。
+
+**本次新增脚本的验证状态：云端执行环境离线，已做代码自审，但尚未运行bash语法检查/受限构建或ECS实测。先前35项测试与Node22预构建验收不覆盖本次脚本改动。** 首次执行遇到内存/工具问题应停止诊断，不能把资源限制移除后盲目重试。以下历史产物模式仍可选，提及“必须预构建”的内容仅适用于未使用本参数时。
+
 适用于 Alibaba Cloud Linux 3、x86_64、systemd。Node 22.18+（22系列），Next.js App Router + TypeScript API，同源提供；默认8790，禁止8787。脚本不会连接旧服务或读取旧配置，不安装本地生产数据库，不修改防火墙、安全组、RDS白名单、Bucket/CORS/ACL，不创建计费实例。
 
 ## 先准备一次

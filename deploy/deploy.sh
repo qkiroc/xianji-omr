@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-artifact= checksum= build_source=false
+artifact= checksum= build_source=false low_memory=false
 while (( $# )); do
  case $1 in
  --artifact) [[ $# -ge 2 ]] || exit 2; artifact=$2; shift 2 ;;
  --sha256) [[ $# -ge 2 ]] || exit 2; checksum=$2; shift 2 ;;
  --build-from-source) build_source=true; shift ;;
- *) echo '用法：sudo bash deploy/deploy.sh --artifact /path/package.tar.gz --sha256 SHA256'; exit 2 ;;
+ --build-on-ecs) build_source=true; low_memory=true; shift ;;
+ *) echo '用法：sudo bash deploy/deploy.sh --build-on-ecs 或 --artifact /path/package.tar.gz --sha256 SHA256'; exit 2 ;;
  esac
 done
 if [[ -z $artifact && $build_source != true ]]; then echo '请提供云端预构建包 --artifact 与 --sha256；默认不在 ECS 构建 Next.js。'; exit 2; fi
 if [[ -n $artifact && $build_source == true ]]; then echo '产物模式与源码构建不能同时使用'; exit 2; fi
-if [[ $build_source == true ]]; then
+if [[ $build_source == true && $low_memory != true ]]; then
  available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
  [[ $available -ge 3145728 ]] || { echo '源码构建要求至少3GiB可用内存，请使用云端预构建包'; exit 1; }
 fi
@@ -51,8 +52,12 @@ if [[ -n $artifact ]]; then
  node "$repo/deploy/artifact.mjs" release "$release" "$(git -C "$repo" rev-parse HEAD)"
 else
  git -C "$repo" archive HEAD package.json package-lock.json web server deploy app components shared next.config.ts next-env.d.ts tsconfig.json | tar -xf - -C "$release"
- echo '阶段：显式源码构建，已核验可用内存'
- (cd "$release" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm run build)
+ if [[ $low_memory == true ]]; then
+  bash "$release/deploy/build-on-ecs.sh" "$release"
+ else
+  echo '阶段：显式源码构建，已核验可用内存'
+  (cd "$release" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm run build)
+ fi
 fi
 printf '%s\n' "$version" > "$release/server/RELEASE"
 chmod -R a+rX "$release"
