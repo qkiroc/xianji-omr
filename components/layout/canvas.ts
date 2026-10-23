@@ -13,11 +13,20 @@ const uid = () => clientId();
 const clamp = (n: any, min: any, max: any) => Math.max(min, Math.min(max, n));
 export class AnnotationCanvas {
   [key: string]: any;
-  constructor(stage: any, { onSelect, onChange, getClass, color }: any) {
+  constructor(
+    stage: any,
+    { onSelect, onChange, getClass, color, onRemoveRequest }: any,
+  ) {
     this.stage = stage;
     this.canvas = stage.querySelector("canvas");
     this.ctx = this.canvas.getContext("2d");
-    Object.assign(this, { onSelect, onChange, getClass, color });
+    Object.assign(this, {
+      onSelect,
+      onChange,
+      getClass,
+      color,
+      onRemoveRequest,
+    });
     this.scale = 1;
     this.ox = this.oy = 0;
     this.mode = "select";
@@ -64,6 +73,7 @@ export class AnnotationCanvas {
           ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) ||
           document.querySelector("dialog[open], .modal-backdrop") ||
           e.target.isContentEditable ||
+          this.stage.closest?.("[inert]") ||
           !this.stage.clientHeight ||
           !this.image ||
           (e.target.tagName === "BUTTON" && ["Space", "Enter"].includes(e.code))
@@ -342,7 +352,8 @@ export class AnnotationCanvas {
     this.onSelect(id);
   }
   down(e: any) {
-    if (!this.image || e.button === 2) return;
+    if (!this.image || e.button === 2 || this.stage.closest?.("[inert]"))
+      return;
     this.stage.focus();
     const p = this.point(e),
       q = this.pixel(p);
@@ -499,6 +510,14 @@ export class AnnotationCanvas {
     this.onSelect(this.selected);
   }
   remove() {
+    if (this.onRemoveRequest) {
+      this.finish(true);
+      this.onRemoveRequest();
+      return;
+    }
+    this.removeLocal();
+  }
+  removeLocal() {
     if (!this.selected || !this.boxes.some((b: any) => b.id === this.selected))
       return;
     const id = this.selected;

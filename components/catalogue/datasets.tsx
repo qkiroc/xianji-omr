@@ -1,5 +1,6 @@
 "use client";
 import { ErrorToast } from "../ui/toast";
+import { permanentDelete } from "../../shared/permanent-delete";
 import { Icon } from "../ui/icon";
 import { useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
@@ -62,7 +63,7 @@ export function DatasetList({
               }
             >
               <option value="false">使用中</option>
-              <option value="true">已删除</option>
+              <option value="true">历史回收数据</option>
             </select>
           )}
           <button className="primary" onClick={() => setCreate(true)}>
@@ -72,7 +73,7 @@ export function DatasetList({
       </div>
       <ErrorToast>{error}</ErrorToast>
       <div className="catalogue-summary">
-        <span>{deleted ? "回收站" : "全部数据集"}</span>
+        <span>{deleted ? "历史待清理" : "全部数据集"}</span>
         <span>{loading ? "加载中…" : `${items.length} 个数据集`}</span>
       </div>
       <div className="cards" aria-busy={loading}>
@@ -118,49 +119,34 @@ export function DatasetList({
                 ).toLocaleString()}
               </p>
             </button>
-            {!localization && (
-              <button
-                className="card-delete"
-                onClick={async () => {
-                  const layout = d as Dataset;
+            <button
+              className="card-delete"
+              onClick={async () => {
+                try {
                   if (
-                    !deleted &&
-                    !window.confirm(
-                      `删除“${d.name}”入口？涉及${layout.page_count}张原图及${layout.box_count}框，可恢复。`,
+                    await permanentDelete(
+                      localization ? "locDataset" : "dataset",
+                      [d.id],
                     )
                   )
-                    return;
-                  try {
-                    await api(
-                      "/v2/datasets/" +
-                        d.id +
-                        "/" +
-                        (deleted ? "restore" : "delete"),
-                      json({
-                        version: d.version,
-                        expectedImages: layout.page_count,
-                        expectedBoxes: layout.box_count,
-                      }),
-                    );
                     await load();
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : "操作失败");
-                  }
-                }}
-              >
-                {deleted ? "恢复" : "删除"}
-              </button>
-            )}
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "删除失败");
+                }
+              }}
+            >
+              永久删除
+            </button>
           </article>
         ))}
       </div>
       {!loading && !items.length && !error && (
         <div className="empty-state">
           <Icon name="folder" />
-          <h2>{deleted ? "回收站为空" : "还没有数据集"}</h2>
+          <h2>{deleted ? "没有历史待清理数据" : "还没有数据集"}</h2>
           <p>
             {deleted
-              ? "已删除的数据集会显示在这里。"
+              ? "仅显示升级前遗留的回收数据，新删除不会进入此处。"
               : "新建数据集，开始整理歌曲与标注数据。"}
           </p>
           {!deleted && (

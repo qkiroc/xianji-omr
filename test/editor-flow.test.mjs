@@ -160,6 +160,10 @@ test("弹窗或隐藏画布不会被全局快捷键修改；组合键不触发�
   key("Delete");
   assert.equal(c.boxes.length, 1);
   c.stage.clientHeight = 100;
+  c.stage.closest = () => ({});
+  key("Delete");
+  assert.equal(c.boxes.length, 1);
+  c.stage.closest = () => null;
   key("r", { ctrlKey: true });
   assert.equal(c.mode, "select");
   c.dispose();

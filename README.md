@@ -1,5 +1,7 @@
 # 切图标注 · xianji-omr
 
+当前schema6 / CLI0.4.0：删除为不可恢复的数据库与OSS级联清理，含引用定位记录及完整关联快照，失败可重试而不能恢复。升级与新增OSS权限见[永久删除说明](docs/permanent-deletion.md)。
+
 中文数据集管理与原图区域标注平台。支持数据集、曲目、多页页序、明确 songGroupKey 和曲目级 train/val/test；原七类及六类元信息整数像素框、父子谱行、裁片预览、撤销重做、草稿与人工确认。仅确认数据可冻结不可变快照，导出整页 YOLO/COCO/原生标注包及裁片来源映射包。训练在平台之外进行，本轮不含训练器、模型上传或自动识谱。
 
 生产：Next.js App Router + React + TypeScript strict，Node22.18+同源网页/API，私有OSS存原图，PostgreSQL18存元信息/坐标/版本与会话；浏览器未保存修改只在当前页面内存，不自动写入本地存储。请按 [ECS部署说明](deploy/README.md) 首次配置并使用匹配commit的云端预构建包运行 `sudo bash deploy/deploy.sh --artifact /包路径 --sha256 校验值`（小内存ECS不运行next build）。

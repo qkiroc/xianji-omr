@@ -1,3 +1,4 @@
+import { registerDeletion } from "./deletion.ts";
 import { registerLocalization } from "./localization/api.ts";
 import { registerRegionReview } from "./region-review.ts";
 import { registerSongCatalogue } from "./song-catalogue.ts";
@@ -37,6 +38,8 @@ export function createPlatform(deps: any) {
     const version = req.query.version || LATEST_TAXONOMY;
     res.json({ taxonomyVersion: version, categories: categoriesFor(version) });
   });
+  const deletion = registerDeletion(router, deps);
+  (router as any).deletion = deletion;
   registerLocalization(router, deps);
   registerDatasets(router, deps);
   registerSongCatalogue(router, { pool });
@@ -72,13 +75,11 @@ export function createPlatform(deps: any) {
     );
   });
   router.post("/datasets/:datasetId/snapshots", async (req: any, res: any) =>
-    res
-      .status(202)
-      .json({
-        id: await exporter.launch(req.params.datasetId, null, {
-          pageIds: req.body.pageIds,
-        }),
+    res.status(202).json({
+      id: await exporter.launch(req.params.datasetId, null, {
+        pageIds: req.body.pageIds,
       }),
+    }),
   );
   router.post("/snapshots/:snapshotId/retry", async (req: any, res: any) => {
     need(ID.test(req.params.snapshotId), "快照ID无效");
@@ -101,13 +102,11 @@ export function createPlatform(deps: any) {
     need(r?.status === "ready", "快照尚未准备好，不能下载", 409);
     const asset = r.artifacts[req.params.kind],
       stream = await storage.getStream(asset.key);
-    res
-      .type("application/zip")
-      .set({
-        "Content-Disposition": `attachment; filename="${req.params.snapshotId}-${req.params.kind}.zip"`,
-        "Content-Length": String(asset.bytes),
-        "X-Checksum-Sha256": asset.checksum,
-      });
+    res.type("application/zip").set({
+      "Content-Disposition": `attachment; filename="${req.params.snapshotId}-${req.params.kind}.zip"`,
+      "Content-Length": String(asset.bytes),
+      "X-Checksum-Sha256": asset.checksum,
+    });
     await pipeline(stream, res);
   });
   return router;

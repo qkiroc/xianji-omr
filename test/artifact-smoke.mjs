@@ -53,7 +53,7 @@ try {
   execFileSync("tar", ["-xzf", packed.archive, "-C", cliDir]);
   const result = await workflow(
     f,
-    join(cliDir, "xianji-omr-cli-0.3.0/xianji-omr.mjs"),
+    join(cliDir, "xianji-omr-cli-0.4.0/xianji-omr.mjs"),
   );
   assert.equal(result.templates, 50);
   assert.equal((await fetch(f.url + "/datasets")).status, 200);

@@ -1,4 +1,5 @@
 "use client";
+import { permanentDelete } from "../../shared/permanent-delete";
 import { ErrorToast } from "../ui/toast";
 import {
   translateMeasure,
@@ -931,21 +932,46 @@ export function LocalizationEditor({
                 />
               </label>
               <button
-                onClick={() => {
-                  if (
-                    window.confirm("删除此小节几何及其事件？保存前可撤销。")
-                  ) {
-                    edit((g) => {
-                      g.measures = g.measures.filter(
-                        (m) => m.id !== measure.id,
+                disabled={busy}
+                onClick={async () => {
+                  if (dirty) {
+                    setError("请先保存或撤销其他修改，再永久删除小节");
+                    return;
+                  }
+                  setBusy(true);
+                  try {
+                    if (
+                      await permanentDelete(
+                        "locMeasure",
+                        [recordId],
+                        [measure.id],
+                      )
+                    ) {
+                      const value = await api<LocalizationRecord>(
+                        "/v2/localization/records/" + recordId,
                       );
-                    });
-                    setMeasureId("");
-                    setEventId("");
+                      setRecord(value);
+                      recordRef.current = value;
+                      setGeometry(value.geometry);
+                      current.current = value.geometry;
+                      setHistory([]);
+                      setFuture([]);
+                      setDirty(false);
+                      setMeasureId(value.geometry.measures[0]?.id || "");
+                      setEventId("");
+                      location({
+                        measure: value.geometry.measures[0]?.id,
+                        event: undefined,
+                      });
+                    }
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "删除失败");
+                  } finally {
+                    setBusy(false);
                   }
                 }}
               >
-                删除小节
+                永久删除小节
               </button>
               <h3>完整谱行上下文</h3>
               {systemContext ? (
@@ -1045,7 +1071,7 @@ export function LocalizationEditor({
                   <button
                     onClick={() => void reject(event.status === "rejected")}
                   >
-                    {event.status === "rejected" ? "恢复事件" : "拒绝误检"}
+                    {event.status === "rejected" ? "撤销拒绝" : "拒绝误检"}
                   </button>
                   <h3>当前事件裁片</h3>
                   <Preview src={image} box={event.bbox ?? event.contextBBox} />

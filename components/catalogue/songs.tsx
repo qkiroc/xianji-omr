@@ -1,5 +1,6 @@
 "use client";
 import { ErrorToast } from "../ui/toast";
+import { permanentDelete } from "../../shared/permanent-delete";
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -67,31 +68,17 @@ export function SongList({ datasetId }: { datasetId: string }) {
   }, [datasetId, filters]);
   const update = (values: Record<string, string | number | undefined>) =>
     go(base + "?" + useQueryString(new URLSearchParams(filters), values));
-  const remove = async (items: Song[], restore = false) => {
-    if (
-      !restore &&
-      !window.confirm(
-        `删除${items.length}首歌曲入口？涉及${items.reduce((n, s) => n + s.page_count, 0)}页与${items.reduce((n, s) => n + s.box_count, 0)}框，可恢复。`,
-      )
-    )
-      return;
+  const remove = async (items: Song[], _restore = false) => {
     try {
-      await api(
-        "/v2/datasets/" +
-          datasetId +
-          "/songs/" +
-          (restore ? "restore" : "delete"),
-        json({
-          items: items.map((s) => ({
-            id: s.id,
-            version: s.version,
-            pageRevision: s.page_revision,
-          })),
-        }),
-      );
-      await load();
+      if (
+        await permanentDelete(
+          "song",
+          items.map((s) => s.id),
+        )
+      )
+        await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "操作失败");
+      setError(e instanceof Error ? e.message : "删除失败");
     }
   };
   const open = (s: Song, view = "original") =>
@@ -172,7 +159,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
         </select>
         <select name="deleted" defaultValue={q.get("deleted") || "active"}>
           <option value="active">使用中</option>
-          <option value="deleted">已删除</option>
+          <option value="deleted">历史回收数据</option>
         </select>
         <button>查询</button>
         <button type="button" onClick={() => go(base)}>
@@ -190,7 +177,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
             )
           }
         >
-          {deleted ? "恢复所选" : "删除所选"}
+          永久删除所选
         </button>
       </div>
       <ErrorToast>{error}</ErrorToast>
@@ -272,7 +259,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
                     </>
                   )}
                   <button onClick={() => void remove([s], deleted)}>
-                    {deleted ? "恢复" : "删除"}
+                    永久删除
                   </button>
                 </td>
               </tr>
@@ -503,6 +490,18 @@ export function SongList({ datasetId }: { datasetId: string }) {
                   </p>
                 )}
                 {s.error && <ErrorToast>{s.error}</ErrorToast>}
+                <button
+                  onClick={async () => {
+                    try {
+                      if (await permanentDelete("snapshot", [s.id]))
+                        await loadSnapshots();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "删除失败");
+                    }
+                  }}
+                >
+                  永久删除快照
+                </button>
                 {s.status === "failed" && (
                   <button
                     onClick={async () => {

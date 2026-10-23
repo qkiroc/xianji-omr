@@ -32,6 +32,12 @@ try {
     release: release.trim(),
     webHandler: nextApp.getRequestHandler(),
   });
+  void app.locals.platform.deletion.recover().catch(() => {});
+  const deletionTimer = setInterval(
+    () => void app.locals.platform.deletion.recover().catch(() => {}),
+    30000,
+  );
+  deletionTimer.unref();
   await app.locals.platform.exporter.recover();
   const server = app.listen(config.port, config.host, () =>
     console.log("XIANJI_OMR_STARTED"),

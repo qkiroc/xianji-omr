@@ -1,3 +1,4 @@
+import {ossStorage} from "./src/storage.mjs";
 import {loadConfig,poolFor} from './src/config.mjs';
 import {withLock,checkHistory,files,migrate,backup,command,SCHEMA} from './src/migrate.mjs';
 import {activateRelease,releaseSupportsSchema} from './src/release.mjs';
@@ -13,6 +14,8 @@ try{
  const probe=createServer();const busy=await new Promise((resolve,reject)=>{probe.once('error',e=>e.code==='EADDRINUSE'?resolve(true):reject(Error('PORT_BIND_FAILED')));probe.listen(config.port,config.host,()=>probe.close(()=>resolve(false)))});
  if(busy){const pid=execFileSync('systemctl',['show','--property=MainPID','--value','xianji-omr.service'],{encoding:'utf8'}).trim(),sockets=execFileSync('ss',['-H','-ltnp',`sport = :${config.port}`],{encoding:'utf8'}),pids=[...sockets.matchAll(/pid=(\d+)/g)].map(m=>m[1]);if(!pid||pid==='0'||!pids.length||pids.some(p=>p!==pid))throw Error('PORT_OWNED_BY_ANOTHER_PROCESS')}
  try{const st=await lstat(join(root,'current'));if(!st.isSymbolicLink()||!(await realpath(join(root,'current'))).startsWith(root+'/releases/'))throw Error('CURRENT_PATH_CONFLICT')}catch(e){if(e.code!=='ENOENT')throw e}
+ step('oss-permanent-delete-access');
+ try{await ossStorage(config.oss).assertPermanentDeleteAccess()}catch{console.error('OSS永久删除读取检查失败：请核对GetBucketVersioning及版本化桶的ListObjectVersions授权；未更改任何权限或删除对象。');throw Error('OSS_PERMANENT_DELETE_ACCESS')}
  if(process.argv.includes('--preflight'))process.exit(0);
  pool=await poolFor(config);await withLock(pool,async c=>{
   step('database-isolation');const r=(await c.query('SELECT current_database() db,current_user usr,rolsuper FROM pg_roles WHERE rolname=current_user')).rows[0];if(r.db!=='xianji_omr'||r.usr!=='xianji_omr'||r.rolsuper)throw Error('DEDICATED_NON_SUPERUSER_REQUIRED');

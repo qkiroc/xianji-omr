@@ -327,17 +327,12 @@ export function registerPages(router: any, { pool, storage, config }: any) {
           ),
           p.status,
         );
-        const deletedBoxes = [
-          ...p.deleted_boxes.filter(
-            (b: any) => !boxes.some((x: any) => x.id === b.id),
-          ),
-          ...p.boxes.filter(
-            (b: any) =>
-              !boxes.some((x: any) => x.id === b.id) &&
-              !p.deleted_boxes.some((x: any) => x.id === b.id),
-          ),
-        ];
-        need(deletedBoxes.length <= 5000, "已删除区域超过5000，需先恢复整理");
+        need(
+          p.boxes.every((b: any) => boxes.some((x: any) => x.id === b.id)),
+          "删除已保存区域请使用永久删除预览与确认接口",
+          409,
+        );
+        const deletedBoxes: any[] = [];
         const r = (
           await c.query(
             "UPDATE omr_images SET boxes=$1,song_id=$2,page_order=$3,page_type=$4,annotation_format='layout-v1',status='draft',version=version+1,updated_at=now(),annotation_version=$6,source=$7,deleted_boxes=$8 WHERE id=$5 RETURNING omr_images.*,(SELECT dataset_id FROM omr_songs WHERE id=omr_images.song_id) AS dataset_id",

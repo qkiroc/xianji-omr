@@ -1,14 +1,21 @@
+import { DELETION_LOCK, deletionBarrier } from "./deletion-lock.ts";
 import { randomUUID } from "node:crypto";
 import { need, Problem, ID, TAXONOMY } from "./annotation.ts";
 export const LEGACY_SONG = "00000000-0000-4000-8000-000000000002";
 export async function transaction(
   pool: any,
   fn: any,
-  { isolation = "" }: any = {},
+  { isolation = "", independentAuth = false }: any = {},
 ) {
   const c = await pool.connect();
+  let deletionHeld = false;
   try {
+    if (!independentAuth) {
+      await c.query("SELECT pg_advisory_lock_shared($1)", [DELETION_LOCK]);
+      deletionHeld = true;
+    }
     await c.query("BEGIN" + (isolation ? " ISOLATION LEVEL " + isolation : ""));
+    if (!independentAuth) await deletionBarrier(c);
     const value = await fn(c);
     await c.query("COMMIT");
     return value;
@@ -16,6 +23,10 @@ export async function transaction(
     await c.query("ROLLBACK").catch(() => {});
     throw e;
   } finally {
+    if (deletionHeld)
+      await c
+        .query("SELECT pg_advisory_unlock_shared($1)", [DELETION_LOCK])
+        .catch(() => {});
     c.release();
   }
 }

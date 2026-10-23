@@ -1253,3 +1253,13 @@ label > textarea {
 .crop-results .crop-card p {
   margin: 10px 0 0;
 }
+.deletion-jobs-button {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1500;
+  background: #fff2f2;
+  border-color: #e5b0b8;
+  color: #b52e42;
+  box-shadow: 0 4px 20px #1112;
+}

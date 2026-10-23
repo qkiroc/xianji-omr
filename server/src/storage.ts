@@ -1,3 +1,7 @@
+import {
+  deleteOssKeyPermanently,
+  probeOssPermanentDeleteAccess,
+} from "./oss-delete.ts";
 // Lazy SDK loading keeps startup/health independent from OSS metadata access.
 // No default credential chain: only explicitly selected ECS RAM Role / STS / AK.
 export function ossStorage(o: any) {
@@ -51,6 +55,12 @@ export function ossStorage(o: any) {
     },
     async get(key: any) {
       return (await (await client()).get(key)).content;
+    },
+    async assertPermanentDeleteAccess() {
+      await probeOssPermanentDeleteAccess(await client(), o.bucket, o.prefix);
+    },
+    async deletePermanently(key: string) {
+      await deleteOssKeyPermanently(await client(), o.bucket, key);
     },
     async delete(key: any) {
       await (await client()).delete(key);

@@ -1,5 +1,6 @@
 "use client";
 import { ErrorToast } from "./ui/toast";
+import { DeletionJobs } from "./deletion-jobs";
 import { Icon } from "./ui/icon";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -115,6 +116,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </nav>
         </>
       )}
+      {account && <DeletionJobs />}
       <main
         className={editor ? "editor-root" : cli ? "cli-main" : "page-content"}
       >

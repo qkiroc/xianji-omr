@@ -1,5 +1,7 @@
 # 弦记 OMR 独立 CLI
 
+当前CLI 0.4.0，新增`deletions preview/execute/list/retry`，永久级联删除替代旧可恢复删除；旧delete/restore接口返回410，需平台schema6。执行必须显式`--acknowledge`。完整stdin/API契约见[永久删除说明](../../docs/permanent-deletion.md)。旧文档中的可恢复删除示例不再适用。
+
 需要Node >=22.18.0。仅Node内置模块，无自定义npm包、无MCP、无需npm install/login。平台必须先升级到包含schema3/CLI授权接口的版本；当前线上旧版本不会因GitHub更新自动升级。
 
 仓库中运行：

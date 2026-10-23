@@ -54,45 +54,10 @@ const item = (r: any) => ({
 });
 export function registerCatalogue(router: any, { pool }: any) {
   for (const action of ["delete", "restore"])
-    router.post("/datasets/:datasetId/" + action, async (req: any, res: any) =>
-      res.json(
-        await transaction(pool, async (c: any) => {
-          const d = await datasetRecord(c, req.params.datasetId, {
-            deleted: true,
-            lock: true,
-          });
-          need(d.version === req.body.version, "数据集版本冲突", 409);
-          need(
-            action === "delete" ? !d.deleted_at : !!d.deleted_at,
-            "数据集状态已变化",
-            409,
-          );
-          const impact = (
-            await c.query(
-              "SELECT count(*)::int images,COALESCE(sum(jsonb_array_length(i.boxes)),0)::int boxes FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND s.deleted_at IS NULL AND i.deleted_at IS NULL",
-              [d.id],
-            )
-          ).rows[0];
-          if (action === "delete" && req.body.expectedImages !== undefined)
-            need(
-              req.body.expectedImages === impact.images &&
-                req.body.expectedBoxes === impact.boxes,
-              "影响范围已变化，请刷新后重新确认",
-              409,
-            );
-          const r = (
-            await c.query(
-              `UPDATE omr_datasets SET deleted_at=${action === "delete" ? "now()" : "NULL"},version=version+1,updated_at=now() WHERE id=$1 RETURNING *`,
-              [d.id],
-            )
-          ).rows[0];
-          await c.query(
-            "UPDATE omr_images SET version=version+1,updated_at=now() WHERE song_id IN (SELECT id FROM omr_songs WHERE dataset_id=$1)",
-            [d.id],
-          );
-          return { dataset: r, impact };
-        }),
-      ),
+    router.post("/datasets/:datasetId/" + action, (_req: any, res: any) =>
+      res
+        .status(410)
+        .json({ error: "请使用永久删除预览与确认接口；恢复已停用" }),
     );
   router.get("/datasets/:datasetId/pages", async (req: any, res: any) =>
     res.json(
@@ -176,64 +141,9 @@ export function registerCatalogue(router: any, { pool }: any) {
       ),
   );
   for (const action of ["delete", "restore"])
-    router.post(
-      "/datasets/:datasetId/pages/" + action,
-      async (req: any, res: any) =>
-        res.json(
-          await transaction(pool, async (c: any) => {
-            const d = await datasetRecord(c, req.params.datasetId, {
-                lock: true,
-              }),
-              items = req.body.items;
-            need(
-              Array.isArray(items) &&
-                items.length > 0 &&
-                items.length <= 100 &&
-                new Set(items.map((i: any) => i.id)).size === items.length,
-              "请选择1–100条不重复记录",
-            );
-            for (const i of items)
-              need(
-                ID.test(i.id) &&
-                  Number.isSafeInteger(i.version) &&
-                  i.version > 0,
-                "图片标识或版本无效",
-              );
-            const rows = (
-              await c.query(
-                "SELECT i.* FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND s.deleted_at IS NULL AND i.id=ANY($2::uuid[]) ORDER BY i.id FOR UPDATE OF i",
-                [d.id, items.map((i: any) => i.id)],
-              )
-            ).rows;
-            need(
-              rows.length === items.length,
-              "图片不属于此数据集或不存在",
-              409,
-            );
-            for (const r of rows) {
-              need(
-                r.version === items.find((i: any) => i.id === r.id).version,
-                "图片版本冲突，未删除/恢复任何记录",
-                409,
-              );
-              need(
-                action === "delete" ? !r.deleted_at : !!r.deleted_at,
-                "图片状态已变化",
-                409,
-              );
-            }
-            const changed = (
-              await c.query(
-                `UPDATE omr_images SET deleted_at=${action === "delete" ? "now()" : "NULL"},version=version+1,updated_at=now() WHERE id=ANY($1::uuid[]) RETURNING id,version,deleted_at`,
-                [items.map((i: any) => i.id)],
-              )
-            ).rows;
-            await c.query(
-              "UPDATE omr_datasets SET updated_at=now() WHERE id=$1",
-              [d.id],
-            );
-            return { items: changed };
-          }),
-        ),
+    router.post("/datasets/:datasetId/pages/" + action, (_req: any, res: any) =>
+      res
+        .status(410)
+        .json({ error: "请使用永久删除预览与确认接口；恢复已停用" }),
     );
 }

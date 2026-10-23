@@ -153,6 +153,33 @@ export function createApp({
     res.json({ ok: true });
   });
   const platform = createPlatform({ pool, storage, config });
+  app.use("/api", async (req: any, res: any, next: any) => {
+    if (req.path.startsWith("/v2/deletions")) return next();
+    if (
+      req.method === "POST" &&
+      (/\/delete$/.test(req.path) ||
+        (/\/restore$/.test(req.path) && !req.path.includes("/events/")))
+    )
+      return res.status(410).json({
+        error:
+          "删除已改为不可恢复，请使用deletions预览并明确确认；恢复接口已停用",
+      });
+    const exists = (
+      await pool.query("SELECT to_regclass('public.omr_deletion_jobs') t")
+    ).rows[0].t;
+    if (
+      exists &&
+      (
+        await pool.query(
+          "SELECT 1 FROM omr_deletion_jobs WHERE status IN ('pending','failed') LIMIT 1",
+        )
+      ).rowCount
+    )
+      return res.status(503).json({
+        error: "永久清理未完成，请在删除任务中重试；当前暂停数据操作",
+      });
+    next();
+  });
   app.use("/api/v2", platform);
   app.locals.platform = platform;
   app.get("/api/images", async (req: any, res: any) => {
@@ -227,6 +254,13 @@ export function createApp({
         key = config.oss.prefix + id;
         try {
           const r = await transaction(pool, async (c: any) => {
+            // A new legacy upload may create a fresh empty compatibility container; never restore old rows.
+            await c.query(
+              "INSERT INTO omr_datasets(id,name,description) VALUES('00000000-0000-4000-8000-000000000001','历史未归类','新的兼容上传容器') ON CONFLICT(id) DO NOTHING",
+            );
+            await c.query(
+              "INSERT INTO omr_songs(id,dataset_id,name,song_group_key,split) VALUES('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','待整理曲目','legacy-unassigned','train') ON CONFLICT(id) DO NOTHING",
+            );
             await datasetRecord(c, "00000000-0000-4000-8000-000000000001", {
               lock: true,
             });
@@ -313,6 +347,15 @@ export function createApp({
           } catch {
             const e: Error & { status?: number } = new Error("坐标或版本无效");
             e.status = 400;
+            throw e;
+          }
+          if (
+            !p.boxes.every((b: any) => boxes.some((x: any) => x.id === b.id))
+          ) {
+            const e: any = new Error(
+              "删除已保存区域请使用永久删除预览与确认接口",
+            );
+            e.status = 409;
             throw e;
           }
           const result = await c.query(

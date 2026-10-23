@@ -12,6 +12,7 @@ import {
   Song,
   useQueryString,
 } from "../../shared/client";
+import { permanentDelete } from "../../shared/permanent-delete";
 import { regionIssues } from "../../shared/region-issues";
 import { songEditorTarget } from "../../shared/editor-navigation";
 import { AnnotationCanvas } from "./canvas";
@@ -38,7 +39,8 @@ export function LayoutEditor({
   pageId?: string;
 }) {
   const cropState = useRef({ ...defaultCropState }),
-    persistedDeleted = useRef(new Set<string>()),
+    savedBoxIds = useRef(new Set<string>()),
+    deleteRequest = useRef<() => void>(() => {}),
     focusTarget = useRef<string | null>(null),
     pageDrag = useRef<{
       id: string;
@@ -163,9 +165,7 @@ export function LayoutEditor({
         if (active) {
           setDoc(value);
           docRef.current = value;
-          persistedDeleted.current = new Set(
-            value.deletedBoxes.map((b) => b.id),
-          );
+          savedBoxIds.current = new Set(value.boxes.map((b) => b.id));
           setSelected(null);
         }
       })
@@ -183,6 +183,7 @@ export function LayoutEditor({
       color: (key: string) =>
         taxonomy.find((c) => c.key === key)?.color || "#999",
       getClass: () => classRef.current,
+      onRemoveRequest: () => deleteRequest.current(),
       onSelect: (id: string | null) => {
         setSelected(id);
         const params = new URLSearchParams(window.location.search);
@@ -208,16 +209,7 @@ export function LayoutEditor({
           const next = {
             ...previous,
             boxes: reviewed,
-            deletedBoxes: [
-              ...previous.deletedBoxes.filter(
-                (b) => !boxes.some((x) => x.id === b.id),
-              ),
-              ...old.filter(
-                (b) =>
-                  !boxes.some((x) => x.id === b.id) &&
-                  !previous.deletedBoxes.some((x) => x.id === b.id),
-              ),
-            ],
+            deletedBoxes: [],
           };
           docRef.current = next;
           return next;
@@ -304,7 +296,7 @@ export function LayoutEditor({
             "PUT",
           ),
         );
-      persistedDeleted.current = new Set(result.deletedBoxes.map((b) => b.id));
+      savedBoxIds.current = new Set(result.boxes.map((b) => b.id));
       if (docRef.current === current) {
         setDoc(result);
         docRef.current = result;
@@ -457,6 +449,46 @@ export function LayoutEditor({
     } catch (e) {
       setError(e instanceof Error ? e.message : "上传失败");
     }
+  };
+  deleteRequest.current = () => {
+    if (!selected || !docRef.current || busy) return;
+    if (!savedBoxIds.current.has(selected)) {
+      canvas.current?.removeLocal();
+      if (canvas.current) {
+        canvas.current.history = [];
+        canvas.current.future = [];
+        canvas.current.render();
+      }
+      return;
+    }
+    if (dirty) {
+      setError("请先保存或撤销其他修改，再永久删除已保存区域");
+      return;
+    }
+    const target = docRef.current.image.id,
+      id = selected;
+    setBusy(true);
+    void (async () => {
+      try {
+        if (!(await permanentDelete("region", [target], [id]))) return;
+        const value = await api<LayoutDocument>("/v2/pages/" + target);
+        if (docRef.current?.image.id !== target) return;
+        setDoc(value);
+        docRef.current = value;
+        savedBoxIds.current = new Set(value.boxes.map((b) => b.id));
+        setDirty(false);
+        if (canvas.current) {
+          canvas.current.boxes = structuredClone(value.boxes);
+          canvas.current.history = [];
+          canvas.current.future = [];
+          canvas.current.select(null);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "永久删除失败");
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
   return (
     <>
@@ -764,7 +796,7 @@ export function LayoutEditor({
             onChange={(e) => setDeleted(e.target.value === "true")}
           >
             <option value="false">使用中谱页</option>
-            <option value="true">已删除谱页</option>
+            <option value="true">历史回收谱页</option>
           </select>
           {pages.map((p, i) => (
             <div
@@ -822,27 +854,17 @@ export function LayoutEditor({
                       setError("请先保存当前修改");
                       return;
                     }
-                    if (
-                      !deleted &&
-                      !window.confirm("删除此谱页记录和标注，可恢复？")
-                    )
-                      return;
                     try {
-                      await api(
-                        "/v2/datasets/" +
-                          datasetId +
-                          "/pages/" +
-                          (deleted ? "restore" : "delete"),
-                        json({ items: [{ id: p.id, version: p.version }] }),
-                      );
-                      if (p.id === pageId) go(base + "?" + originalQuery());
-                      else await loadPages();
+                      if (await permanentDelete("page", [p.id])) {
+                        if (p.id === pageId) go(base + "?" + originalQuery());
+                        else await loadPages();
+                      }
                     } catch (e) {
-                      setError(e instanceof Error ? e.message : "操作失败");
+                      setError(e instanceof Error ? e.message : "删除失败");
                     }
                   }}
                 >
-                  {deleted ? "恢复" : "删除"}
+                  永久删除
                 </button>
               </div>
             </div>
@@ -1134,35 +1156,6 @@ export function LayoutEditor({
             onAdjust={(id) => {
               focusTarget.current = id;
               viewOnly("original");
-            }}
-            onRestore={async (id) => {
-              try {
-                if (dirty && !persistedDeleted.current.has(id)) {
-                  const box = docRef.current?.deletedBoxes.find(
-                    (b) => b.id === id,
-                  );
-                  if (box)
-                    canvas.current?.edit((boxes: Box[]) =>
-                      boxes.push(structuredClone(box)),
-                    );
-                  return;
-                }
-                if (dirty) await save();
-                const value = await api<LayoutDocument>(
-                  "/v2/pages/" +
-                    docRef.current!.image.id +
-                    "/regions/" +
-                    encodeURIComponent(id) +
-                    "/restore",
-                  json({ version: docRef.current!.image.version }),
-                );
-                setDoc(value);
-                docRef.current = value;
-                if (canvas.current)
-                  canvas.current.boxes = structuredClone(value.boxes);
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "恢复失败");
-              }
             }}
           />
         )}

@@ -81,65 +81,10 @@ export function registerSongCatalogue(router: any, { pool }: any) {
     ),
   );
   for (const action of ["delete", "restore"])
-    router.post(
-      "/datasets/:datasetId/songs/" + action,
-      async (req: any, res: any) =>
-        res.json(
-          await transaction(pool, async (c: any) => {
-            const d = await datasetRecord(c, req.params.datasetId, {
-                lock: true,
-              }),
-              items = req.body.items;
-            need(
-              Array.isArray(items) &&
-                items.length > 0 &&
-                items.length <= 100 &&
-                new Set(items.map((i: any) => i?.id)).size === items.length,
-              "请选择1–100首不同歌曲",
-            );
-            for (const i of items)
-              need(
-                ID.test(i.id) &&
-                  Number.isSafeInteger(i.version) &&
-                  /^[a-f0-9]{32}$/.test(i.pageRevision || ""),
-                "歌曲标识或版本无效",
-              );
-            const rows = (
-              await c.query(
-                `SELECT s.*,${revisionSQL} page_revision FROM omr_songs s LEFT JOIN omr_images i ON i.song_id=s.id WHERE s.dataset_id=$1 AND s.id=ANY($2::uuid[]) GROUP BY s.id ORDER BY s.id`,
-                [d.id, items.map((i: any) => i.id)],
-              )
-            ).rows;
-            need(rows.length === items.length, "歌曲不属于此数据集", 409);
-            for (const s of rows) {
-              const expected = items.find((i: any) => i.id === s.id);
-              need(
-                s.version === expected.version &&
-                  s.page_revision === expected.pageRevision,
-                "歌曲或谱页版本已变化，请刷新；未修改任何记录",
-                409,
-              );
-              need(
-                action === "delete" ? !s.deleted_at : !!s.deleted_at,
-                "歌曲状态已变化",
-                409,
-              );
-            }
-            await c.query(
-              `UPDATE omr_songs SET deleted_at=${action === "delete" ? "now()" : "NULL"},version=version+1 WHERE id=ANY($1::uuid[])`,
-              [items.map((i: any) => i.id)],
-            );
-            await c.query(
-              "UPDATE omr_images SET version=version+1,updated_at=now() WHERE song_id=ANY($1::uuid[])",
-              [items.map((i: any) => i.id)],
-            );
-            await c.query(
-              "UPDATE omr_datasets SET updated_at=now() WHERE id=$1",
-              [d.id],
-            );
-            return { count: rows.length };
-          }),
-        ),
+    router.post("/datasets/:datasetId/songs/" + action, (_req: any, res: any) =>
+      res
+        .status(410)
+        .json({ error: "请使用永久删除预览与确认接口；恢复已停用" }),
     );
   router.post("/songs/:songId/pages/reorder", async (req: any, res: any) =>
     res.json(

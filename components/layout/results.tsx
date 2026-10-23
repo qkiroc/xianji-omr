@@ -64,7 +64,6 @@ export function LayoutCrops({
   taxonomy,
   dirty,
   onAdjust,
-  onRestore,
   stateRef,
 }: {
   doc: LayoutDocument;
@@ -72,7 +71,6 @@ export function LayoutCrops({
   taxonomy: Category[];
   dirty: boolean;
   onAdjust: (id: string) => void;
-  onRestore: (id: string) => Promise<void>;
   stateRef: React.RefObject<CropState>;
 }) {
   const query = useSearchParams();
@@ -196,16 +194,6 @@ export function LayoutCrops({
         <div className="empty-state">
           <p>暂无符合条件的区域</p>
         </div>
-      )}
-      {!!doc.deletedBoxes.length && (
-        <details className="panel">
-          <summary>已删除区域（可恢复）</summary>
-          {doc.deletedBoxes.map((b) => (
-            <button key={b.id} onClick={() => void onRestore(b.id)}>
-              恢复 · {b.id}
-            </button>
-          ))}
-        </details>
       )}
     </section>
   );

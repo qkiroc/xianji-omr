@@ -8,7 +8,10 @@ import {
 } from "node:crypto";
 import { hash, ALL_SCOPES, hasAuthorization } from "./identity.ts";
 import { need } from "./annotation.ts";
-import { transaction } from "./datasets.ts";
+import { transaction as dataTransaction } from "./datasets.ts";
+// Auth tables are independent of annotation deletion; keep authorization/revocation usable.
+const transaction = (pool: any, fn: any) =>
+  dataTransaction(pool, fn, { independentAuth: true });
 const random = () => randomBytes(32).toString("hex"),
   opaque = (s: any) => typeof s === "string" && /^[a-f0-9]{64}$/.test(s);
 export function callback(value: any) {
@@ -118,13 +121,11 @@ export function registerCliAuth(app: any, { pool, config, identity }: any) {
           ],
         );
       });
-      res
-        .status(201)
-        .json({
-          requestId: id,
-          authorizeUrl: config.origin + "/cli/authorize?request=" + id,
-          expiresAt: new Date(Date.now() + 300000).toISOString(),
-        });
+      res.status(201).json({
+        requestId: id,
+        authorizeUrl: config.origin + "/cli/authorize?request=" + id,
+        expiresAt: new Date(Date.now() + 300000).toISOString(),
+      });
     },
   );
   router.post(

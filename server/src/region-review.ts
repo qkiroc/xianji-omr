@@ -67,40 +67,7 @@ export function registerRegionReview(router: any, { pool }: any) {
   );
   router.post(
     "/pages/:pageId/regions/:regionId/restore",
-    async (req: any, res: any) =>
-      res.json(
-        await transaction(pool, async (c: any) => {
-          const p = await pageRecord(c, req.params.pageId, true);
-          need(req.body.version === p.version, "页面版本冲突，请保留草稿", 409);
-          const box = p.deleted_boxes.find(
-            (b: any) => b.id === req.params.regionId,
-          );
-          need(box, "已删除区域不存在", 404);
-          need(!p.boxes.some((b: any) => b.id === box.id), "区域ID已存在", 409);
-          const boxes = regions(
-            [...p.boxes, { ...box, reviewStatus: "draft" }],
-            p.coordinate.working.width,
-            p.coordinate.working.height,
-            {
-              pageType: p.page_type,
-              taxonomyVersion: p.annotation_version || TAXONOMY,
-            },
-          );
-          const row = (
-            await c.query(
-              "UPDATE omr_images SET boxes=$1,deleted_boxes=$2,status='draft',version=version+1,updated_at=now() WHERE id=$3 RETURNING *",
-              [
-                JSON.stringify(boxes),
-                JSON.stringify(
-                  p.deleted_boxes.filter((b: any) => b.id !== box.id),
-                ),
-                p.id,
-              ],
-            )
-          ).rows[0];
-          row.dataset_id = p.dataset_id;
-          return pageValue(row);
-        }),
-      ),
+    (_req: any, res: any) =>
+      res.status(410).json({ error: "区域已改为永久删除，不可恢复" }),
   );
 }

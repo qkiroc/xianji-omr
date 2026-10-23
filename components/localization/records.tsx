@@ -1,4 +1,5 @@
 "use client";
+import { permanentDelete } from "../../shared/permanent-delete";
 import { ErrorToast } from "../ui/toast";
 import { clientId } from "../../shared/client";
 import { useEffect, useState } from "react";
@@ -134,6 +135,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
               <th>split</th>
               <th>几何状态</th>
               <th>来源</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -151,6 +153,25 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                 <td>{r.split}</td>
                 <td>{r.status === "confirmed" ? "几何已确认" : "待复核"}</td>
                 <td>{r.source}</td>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={async () => {
+                      try {
+                        if (await permanentDelete("locRecord", [r.id])) {
+                          setData((d) => ({
+                            ...d,
+                            items: d.items.filter((x) => x.id !== r.id),
+                            total: d.total - 1,
+                          }));
+                        }
+                      } catch (e) {
+                        setError(e instanceof Error ? e.message : "删除失败");
+                      }
+                    }}
+                  >
+                    永久删除
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -199,6 +220,18 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                 <p>
                   {new Date(s.created_at).toLocaleString()} · {s.id}
                 </p>
+                <button
+                  onClick={async () => {
+                    try {
+                      if (await permanentDelete("locSnapshot", [s.id]))
+                        setSnapshots((old) => old.filter((x) => x.id !== s.id));
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "删除失败");
+                    }
+                  }}
+                >
+                  永久删除快照
+                </button>
                 <a href={"/api/v2/localization/snapshots/" + s.id + "/native"}>
                   原生JSON与原附件
                 </a>{" "}

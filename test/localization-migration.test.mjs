@@ -13,7 +13,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
-test("schema4带7页人工确认/回收站/会话/grant/快照升5，幂等及真实dump恢复保全", async (t) => {
+test("schema4带7页人工确认/回收站/会话/grant/快照升6，幂等及真实dump恢复保全", async (t) => {
   const f = await fixture({ port: 55463, migrationVersion: 4 });
   t.after(() => f.close());
   const cookie = await cookieFor(f),
@@ -32,7 +32,7 @@ test("schema4带7页人工确认/回收站/会话/grant/快照升5，幂等及�
     dump = await backup(f.config, dir);
   await withLock(f.pool, (c) => migrate(c));
   await withLock(f.pool, (c) => migrate(c));
-  assert.equal(await checkHistory(f.pool), 5);
+  assert.equal(await checkHistory(f.pool), 6);
   assert.deepEqual(
     (await f.pool.query("SELECT * FROM omr_images ORDER BY id")).rows,
     before,
