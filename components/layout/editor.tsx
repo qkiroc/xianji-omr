@@ -11,6 +11,8 @@ import {
   Song,
   useQueryString,
 } from "../../shared/client";
+import { regionIssues } from "../../shared/region-issues";
+import { songEditorTarget } from "../../shared/editor-navigation";
 import { AnnotationCanvas } from "./canvas";
 import { useDirty, useNavigation } from "../navigation";
 import { LayoutCrops } from "./results";
@@ -52,6 +54,7 @@ export function LayoutEditor({
     docRef = useRef(doc),
     [pages, setPages] = useState<PageImage[]>([]),
     [song, setSong] = useState<Song | null>(null),
+    [songs, setSongs] = useState<Song[]>([]),
     [taxonomy, setTaxonomy] = useState<Category[]>([]),
     [selected, setSelected] = useState<string | null>(null),
     [currentClass, setCurrentClass] = useState("system"),
@@ -70,6 +73,12 @@ export function LayoutEditor({
   const view = q.get("view") || q.get("editorView") || "original",
     base = "/datasets/" + datasetId,
     selectedBox = doc?.boxes.find((b) => b.id === selected);
+  const issues = regionIssues(doc?.boxes || []);
+  const songIndex = songs.findIndex((s) => s.id === songId);
+  const switchSong = (offset: number) => {
+    const target = songs[songIndex + offset];
+    if (target) go(songEditorTarget(datasetId, target, q.toString()));
+  };
   const originalQuery = () =>
     useQueryString(new URLSearchParams(q), {
       view: undefined,
@@ -85,31 +94,30 @@ export function LayoutEditor({
     );
   }, [song, deleted]);
   useEffect(() => {
+    let active = true;
     api<{ categories: Category[] }>("/v2/taxonomy")
-      .then((t) => setTaxonomy(t.categories))
+      .then((t) => {
+        if (active) setTaxonomy(t.categories);
+      })
       .catch((e) => setError(e.message));
     api<Song[]>("/v2/datasets/" + datasetId + "/songs")
       .then((ss) => {
+        if (!active) return;
+        setSongs(ss);
         if (songId !== "resolve")
           setSong(ss.find((s) => s.id === songId) || null);
       })
       .catch((e) => setError(e.message));
+    return () => {
+      active = false;
+    };
   }, [datasetId, songId]);
   useEffect(() => {
     let active = true;
-    if (!pageId) {
-      if (song) {
-        api<PageImage[]>("/v2/songs/" + song.id + "/pages").then((ps) => {
-          setPages(ps);
-          if (ps[0])
-            go(`${base}/songs/${song.id}/pages/${ps[0].id}?${q}`, true);
-        });
-      }
-      return;
-    }
     setError("");
     setDoc(null);
     setDirty(false);
+    setSelected(null);
     if (canvas.current) {
       canvas.current.image = null;
       canvas.current.boxes = [];
@@ -117,8 +125,26 @@ export function LayoutEditor({
       canvas.current.future = [];
       canvas.current.render();
     }
+    if (!pageId) {
+      if (song && song.id === songId) {
+        api<PageImage[]>("/v2/songs/" + song.id + "/pages")
+          .then((ps) => {
+            if (!active) return;
+            setPages(ps);
+            if (ps[0])
+              go(`${base}/songs/${song.id}/pages/${ps[0].id}?${q}`, true);
+          })
+          .catch((e) => {
+            if (active) setError(e.message);
+          });
+      }
+      return () => {
+        active = false;
+      };
+    }
     api<LayoutDocument>("/v2/pages/" + pageId)
       .then(async (value) => {
+        if (!active) return;
         if (
           value.image.datasetId !== datasetId ||
           (songId !== "resolve" && value.image.songId !== songId)
@@ -462,7 +488,25 @@ export function LayoutEditor({
           <button onClick={() => go(base + "?" + originalQuery())}>
             ‹ 返回歌曲列表
           </button>
-          <span>{song?.name}</span>
+          <span className="editor-song-name" title={song?.name}>
+            {song?.name}
+          </span>
+          <button
+            title="按数据集歌曲顺序切换"
+            aria-label="上一首歌曲"
+            disabled={busy || songIndex <= 0}
+            onClick={() => switchSong(-1)}
+          >
+            上一首
+          </button>
+          <button
+            title="按数据集歌曲顺序切换"
+            aria-label="下一首歌曲"
+            disabled={busy || songIndex < 0 || songIndex >= songs.length - 1}
+            onClick={() => switchSong(1)}
+          >
+            下一首
+          </button>
         </div>
         <div className="actions">
           <button
@@ -510,6 +554,46 @@ export function LayoutEditor({
           </button>
         </div>
       </div>
+      {!!issues.length && (
+        <div className="region-validation" role="alert">
+          <strong>{issues.length} 个区域的谱行关系有问题</strong>
+          <span>红色 ! 为问题区域，橙色虚线为所属谱行；修正后自动消失。</span>
+          {issues.map((issue) => (
+            <span key={issue.boxId} className="actions">
+              <button
+                title={issue.message}
+                onClick={() => {
+                  if (view === "original")
+                    canvas.current?.focusRegion(issue.boxId);
+                  else {
+                    focusTarget.current = issue.boxId;
+                    viewOnly("original");
+                  }
+                }}
+              >
+                定位区域{" "}
+                {(doc?.boxes.findIndex((b) => b.id === issue.boxId) ?? -1) + 1}
+              </button>
+              {doc?.boxes.some(
+                (b) => b.id === issue.parentId && b.classKey === "system",
+              ) && (
+                <button
+                  onClick={() => {
+                    if (view === "original")
+                      canvas.current?.focusRegion(issue.parentId);
+                    else {
+                      focusTarget.current = issue.parentId;
+                      viewOnly("original");
+                    }
+                  }}
+                >
+                  调整所属谱行
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="tools" hidden={view === "crops"}>
         {["select", "draw", "pan"].map((m, i) => (
           <button
@@ -841,12 +925,19 @@ export function LayoutEditor({
             {doc?.boxes.map((b, i) => (
               <button
                 key={b.id}
-                className={b.id === selected ? "active" : ""}
+                className={
+                  (b.id === selected ? "active " : "") +
+                  (issues.some((issue) => issue.boxId === b.id)
+                    ? "region-invalid"
+                    : "")
+                }
+                title={issues.find((issue) => issue.boxId === b.id)?.message}
                 onClick={() => {
                   canvas.current?.setMode("select");
                   canvas.current?.focusRegion(b.id);
                 }}
               >
+                {issues.some((issue) => issue.boxId === b.id) ? "⚠ " : ""}
                 {i + 1} ·{" "}
                 {taxonomy.find((c) => c.key === b.classKey)?.name ||
                   "历史未归类"}{" "}

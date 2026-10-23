@@ -15,12 +15,20 @@ const moduleUrl = (source) =>
 const client = moduleUrl(
   await readFile(new URL("../shared/client.ts", import.meta.url), "utf8"),
 );
+const issuesUrl = moduleUrl(
+  await readFile(
+    new URL("../shared/region-issues.ts", import.meta.url),
+    "utf8",
+  ),
+);
 const source = (
   await readFile(
     new URL("../components/layout/canvas.ts", import.meta.url),
     "utf8",
   )
-).replace('"../../shared/client"', JSON.stringify(client));
+)
+  .replace('"../../shared/client"', JSON.stringify(client))
+  .replace('"../../shared/region-issues"', JSON.stringify(issuesUrl));
 const { AnnotationCanvas } = await import(moduleUrl(source));
 function setup() {
   globalThis.window = new EventTarget();
@@ -184,5 +192,89 @@ test("普通滚轮平移；Ctrl滚轮以鼠标为锚缩放；选中隐藏与取�
   wheel(true);
   assert.notEqual(c.scale, 1);
   assert.ok(Math.abs((50 - c.ox) / c.scale - before) < 1e-10);
+  c.dispose();
+});
+test("选中正常框仍高亮其他越出父谱行的框，修正后恢复隐藏", () => {
+  const { c } = setup();
+  const p = {
+    id: "p",
+    classKey: "system",
+    parentSystemId: null,
+    x: 0,
+    y: 0,
+    width: 50,
+    height: 50,
+  };
+  const b = {
+    id: "bad",
+    classKey: "guitar",
+    parentSystemId: "p",
+    x: 40,
+    y: 10,
+    width: 20,
+    height: 10,
+  };
+  c.boxes = [p, b, { id: "selected", x: 60, y: 60, width: 10, height: 10 }];
+  c.select("selected");
+  assert.deepEqual(
+    c.visibleBoxes().map((b) => b.id),
+    ["bad", "selected"],
+  );
+  b.width = 10;
+  assert.deepEqual(
+    c.visibleBoxes().map((b) => b.id),
+    ["selected"],
+  );
+  c.dispose();
+});
+test("画布实际绘制红色问题框、感叹号及橙色虚线父谱行", () => {
+  const { c } = setup();
+  globalThis.devicePixelRatio = 1;
+  const strokes = [],
+    labels = [],
+    dashes = [];
+  c.ctx = {
+    setTransform() {},
+    clearRect() {},
+    drawImage() {},
+    fillRect() {},
+    strokeRect() {
+      strokes.push(this.strokeStyle);
+    },
+    fillText(t) {
+      labels.push(t);
+    },
+    save() {},
+    restore() {},
+    setLineDash(v) {
+      dashes.push(v);
+    },
+  };
+  c.boxes = [
+    {
+      id: "p",
+      classKey: "system",
+      parentSystemId: null,
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+    },
+    {
+      id: "bad",
+      classKey: "guitar",
+      parentSystemId: "p",
+      x: 40,
+      y: 10,
+      width: 20,
+      height: 10,
+    },
+  ];
+  AnnotationCanvas.prototype.render.call(c);
+  assert.ok(strokes.includes("#dc3545"));
+  assert.ok(strokes.includes("#d58a16"));
+  assert.ok(labels.some((v) => String(v).startsWith("! ")));
+  assert.ok(labels.includes("所属谱行"));
+  assert.deepEqual(dashes[0], [6, 4]);
   c.dispose();
 });

@@ -1,3 +1,4 @@
+import { regionIssues } from "../../shared/region-issues";
 import { clientId } from "../../shared/client";
 const META = [
   "title",
@@ -251,8 +252,11 @@ export class AnnotationCanvas {
     this.render();
   }
   visibleBoxes() {
+    const invalid = new Set(regionIssues(this.boxes).map((i) => i.boxId));
     return this.boxes.some((b: any) => b.id === this.selected)
-      ? this.boxes.filter((b: any) => b.id === this.selected)
+      ? this.boxes.filter(
+          (b: any) => b.id === this.selected || invalid.has(b.id),
+        )
       : this.boxes;
   }
   render() {
@@ -272,13 +276,38 @@ export class AnnotationCanvas {
         this.width * this.scale,
         this.height * this.scale,
       );
+      const issues = new Map(regionIssues(this.boxes).map((i) => [i.boxId, i]));
+      for (const parentId of new Set(
+        [...issues.values()].map((i) => i.parentId),
+      )) {
+        const parent = this.boxes.find(
+          (b: any) => b.id === parentId && b.classKey === "system",
+        );
+        if (!parent) continue;
+        const [x, y] = this.corners(parent)[0];
+        ctx.save();
+        ctx.strokeStyle = "#d58a16";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(
+          x,
+          y,
+          parent.width * this.scale,
+          parent.height * this.scale,
+        );
+        ctx.fillStyle = "#a66a0b";
+        ctx.font = "11px system-ui";
+        ctx.fillText("所属谱行", x + 4, y - 6);
+        ctx.restore();
+      }
       this.visibleBoxes().forEach((b: any) => {
         const i = this.boxes.indexOf(b);
         const [x, y] = this.corners(b)[0],
           w = b.width * this.scale,
           h = b.height * this.scale;
-        ctx.strokeStyle = this.color(b.classKey);
-        ctx.lineWidth = b.id === this.selected ? 2.5 : 1.5;
+        const invalid = issues.has(b.id);
+        ctx.strokeStyle = invalid ? "#dc3545" : this.color(b.classKey);
+        ctx.lineWidth = invalid ? 3 : b.id === this.selected ? 2.5 : 1.5;
         ctx.fillStyle =
           ctx.strokeStyle + (b.id === this.selected ? "26" : "0b");
         ctx.fillRect(x, y, w, h);
@@ -287,7 +316,7 @@ export class AnnotationCanvas {
         ctx.fillRect(x, y, 28, 19);
         ctx.fillStyle = "white";
         ctx.font = "11px system-ui";
-        ctx.fillText(i + 1, x + 8, y + 13);
+        ctx.fillText((invalid ? "! " : "") + (i + 1), x + 4, y + 13);
         if (b.id === this.selected)
           for (const [cx, cy] of this.corners(b)) {
             ctx.fillStyle = "white";
