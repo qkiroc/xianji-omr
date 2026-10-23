@@ -14,7 +14,6 @@ import {
 } from "../../shared/client";
 import { permanentDelete } from "../../shared/permanent-delete";
 import { regionIssues } from "../../shared/region-issues";
-import { songEditorTarget } from "../../shared/editor-navigation";
 import { AnnotationCanvas } from "./canvas";
 import { useDirty, useNavigation } from "../navigation";
 import { LayoutCrops } from "./results";
@@ -41,30 +40,20 @@ export function LayoutEditor({
   const cropState = useRef({ ...defaultCropState }),
     savedBoxIds = useRef(new Set<string>()),
     deleteRequest = useRef<() => void>(() => {}),
-    focusTarget = useRef<string | null>(null),
-    pageDrag = useRef<{
-      id: string;
-      x: number;
-      y: number;
-      moved: boolean;
-    } | null>(null),
-    suppressPageClick = useRef(false);
+    focusTarget = useRef<string | null>(null);
   const { go } = useNavigation(),
     q = useSearchParams(),
     stage = useRef<HTMLDivElement>(null),
     canvas = useRef<AnnotationCanvas | null>(null),
     [doc, setDoc] = useState<LayoutDocument | null>(null),
     docRef = useRef(doc),
-    [pages, setPages] = useState<PageImage[]>([]),
     [song, setSong] = useState<Song | null>(null),
-    [songs, setSongs] = useState<Song[]>([]),
     [taxonomy, setTaxonomy] = useState<Category[]>([]),
     [selected, setSelected] = useState<string | null>(null),
     [currentClass, setCurrentClass] = useState("system"),
     classRef = useRef(currentClass),
     [dirty, setDirty] = useState(false),
     [error, setError] = useState(""),
-    [deleted, setDeleted] = useState(false),
     [zoom, setZoom] = useState(1),
     [mode, setMode] = useState("select"),
     [continuousDrawing, setContinuousDrawing] = useState(false),
@@ -77,10 +66,15 @@ export function LayoutEditor({
     base = "/datasets/" + datasetId,
     selectedBox = doc?.boxes.find((b) => b.id === selected);
   const issues = regionIssues(doc?.boxes || []);
-  const songIndex = songs.findIndex((s) => s.id === songId);
-  const switchSong = (offset: number) => {
-    const target = songs[songIndex + offset];
-    if (target) go(songEditorTarget(datasetId, target, q.toString()));
+  const nextPage = async () => {
+    if (!pageId) return;
+    try {
+      const result = await api<{nextUnconfirmed: {id: string; songId: string} | null}>(
+        `/v2/datasets/${datasetId}/pages/${pageId}/neighbors`);
+      if (!result.nextUnconfirmed) { setError("当前数据集没有其他未确认的谱页"); return; }
+      const target = result.nextUnconfirmed;
+      go(`${base}/songs/${target.songId}/pages/${target.id}?${useQueryString(new URLSearchParams(q), {box: undefined})}`);
+    } catch (e) { setError(e instanceof Error ? e.message : "跳转失败"); }
   };
   const originalQuery = () =>
     useQueryString(new URLSearchParams(q), {
@@ -88,14 +82,6 @@ export function LayoutEditor({
       editorView: undefined,
       box: undefined,
     });
-  const loadPages = useCallback(async () => {
-    if (!song) return;
-    setPages(
-      await api<PageImage[]>(
-        "/v2/songs/" + song.id + "/pages" + (deleted ? "?deleted=deleted" : ""),
-      ),
-    );
-  }, [song, deleted]);
   useEffect(() => {
     let active = true;
     api<{ categories: Category[] }>("/v2/taxonomy")
@@ -106,7 +92,6 @@ export function LayoutEditor({
     api<Song[]>("/v2/datasets/" + datasetId + "/songs")
       .then((ss) => {
         if (!active) return;
-        setSongs(ss);
         if (songId !== "resolve")
           setSong(ss.find((s) => s.id === songId) || null);
       })
@@ -133,7 +118,6 @@ export function LayoutEditor({
         api<PageImage[]>("/v2/songs/" + song.id + "/pages")
           .then((ps) => {
             if (!active) return;
-            setPages(ps);
             if (ps[0])
               go(`${base}/songs/${song.id}/pages/${ps[0].id}?${q}`, true);
           })
@@ -174,9 +158,6 @@ export function LayoutEditor({
       active = false;
     };
   }, [datasetId, songId, pageId, song?.id]);
-  useEffect(() => {
-    void loadPages().catch((e) => setError(e.message));
-  }, [loadPages]);
   useEffect(() => {
     if (!stage.current || !taxonomy.length) return;
     const c = new AnnotationCanvas(stage.current, {
@@ -319,14 +300,13 @@ export function LayoutEditor({
           "前一版本已保存，但保存期间又有新修改；新修改仍在当前页面，请再次保存",
         );
       }
-      await loadPages();
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存失败");
       throw e;
     } finally {
       setBusy(false);
     }
-  }, [loadPages]);
+  }, []);
   useDirty(dirty, save);
   useEffect(() => {
     if (canvas.current) canvas.current.continuousDrawing = continuousDrawing;
@@ -341,40 +321,6 @@ export function LayoutEditor({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [dirty, busy, save]);
-  const navigatePage = (p: PageImage) =>
-    go(
-      `${base}/songs/${p.songId}/pages/${p.id}?${useQueryString(new URLSearchParams(q), { box: undefined })}`,
-    );
-  const index = pages.findIndex((p) => p.id === pageId);
-  const reorder = async (from: string, to: string) => {
-    if (dirty) {
-      setError("请先保存当前修改，再调整页序");
-      return;
-    }
-    const order = [...pages],
-      a = order.findIndex((p) => p.id === from),
-      b = order.findIndex((p) => p.id === to);
-    if (a < 0 || b < 0 || a === b) return;
-    order.splice(b, 0, order.splice(a, 1)[0]);
-    try {
-      const result = await api<PageImage[]>(
-        "/v2/songs/" + songId + "/pages/reorder",
-        json({ items: order.map((p) => ({ id: p.id, version: p.version })) }),
-      );
-      setPages(result);
-      setDoc((d) =>
-        d
-          ? {
-              ...d,
-              image: { ...d.image, ...result.find((p) => p.id === pageId) },
-            }
-          : d,
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "排序失败");
-      void loadPages();
-    }
-  };
   const changeBox = (fn: (b: Box) => void) =>
     canvas.current?.edit((boxes: Box[]) => {
       const b = boxes.find((b) => b.id === selected);
@@ -403,7 +349,6 @@ export function LayoutEditor({
       docRef.current = result;
       if (canvas.current) canvas.current.boxes = structuredClone(result.boxes);
       setDirty(false);
-      await loadPages();
     } catch (e) {
       setError(e instanceof Error ? e.message : "确认失败");
     }
@@ -429,27 +374,6 @@ export function LayoutEditor({
           canvas.current.fit();
       });
   }, [view]);
-  const upload = async (files: FileList | null) => {
-    if (!files || !song) return;
-    if (dirty) {
-      setError("请先保存当前修改，再上传新页");
-      return;
-    }
-    try {
-      for (const file of Array.from(files))
-        await api("/v2/songs/" + song.id + "/pages", {
-          method: "POST",
-          headers: {
-            "Content-Type": file.type,
-            "X-File-Name": encodeURIComponent(file.name),
-          },
-          body: file,
-        });
-      await loadPages();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "上传失败");
-    }
-  };
   deleteRequest.current = () => {
     if (!selected || !docRef.current || busy) return;
     if (!savedBoxIds.current.has(selected)) {
@@ -495,26 +419,13 @@ export function LayoutEditor({
       <div className="editor-toolbar">
         <div className="actions">
           <button onClick={() => go(base + "?" + originalQuery())}>
-            ‹ 返回歌曲列表
+            ‹ 返回谱页列表
           </button>
           <span className="editor-song-name" title={song?.name}>
             {song?.name}
           </span>
-          <button
-            title="按数据集歌曲顺序切换"
-            aria-label="上一首歌曲"
-            disabled={busy || songIndex <= 0}
-            onClick={() => switchSong(-1)}
-          >
-            上一首
-          </button>
-          <button
-            title="按数据集歌曲顺序切换"
-            aria-label="下一首歌曲"
-            disabled={busy || songIndex < 0 || songIndex >= songs.length - 1}
-            onClick={() => switchSong(1)}
-          >
-            下一首
+          <button title="跳转至数据集内下一张未确认谱页，末尾循环查找" disabled={busy || !pageId} onClick={() => void nextPage()}>
+            下一页
           </button>
         </div>
         <div className="actions">
@@ -730,146 +641,8 @@ export function LayoutEditor({
           </button>
         )}
       </ErrorToast>
-      <div className="editor-body" inert={busy}>
-        <aside
-          className="sidebar"
-          onPointerMove={(e) => {
-            const drag = pageDrag.current;
-            if (!drag) return;
-            if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) {
-              drag.moved = true;
-              e.currentTarget.setPointerCapture(e.pointerId);
-              e.preventDefault();
-            }
-          }}
-          onPointerUp={(e) => {
-            const drag = pageDrag.current;
-            pageDrag.current = null;
-            if (!drag?.moved) return;
-            e.preventDefault();
-            suppressPageClick.current = true;
-            const target = document
-              .elementFromPoint(e.clientX, e.clientY)
-              ?.closest<HTMLElement>("[data-page-id]");
-            if (target?.dataset.pageId)
-              void reorder(drag.id, target.dataset.pageId);
-          }}
-          onPointerCancel={() => {
-            pageDrag.current = null;
-          }}
-          onClickCapture={(e) => {
-            if (suppressPageClick.current) {
-              e.preventDefault();
-              e.stopPropagation();
-              suppressPageClick.current = false;
-            }
-          }}
-        >
-          <h3>歌曲谱页</h3>
-          <label>
-            上传谱页
-            <input
-              type="file"
-              aria-label="上传谱页"
-              multiple
-              accept="image/png,image/jpeg,image/webp"
-              onChange={(e) => void upload(e.target.files)}
-            />
-          </label>
-          <div className="actions">
-            <button
-              disabled={index <= 0}
-              onClick={() => navigatePage(pages[index - 1])}
-            >
-              上一页
-            </button>
-            <button
-              disabled={index < 0 || index >= pages.length - 1}
-              onClick={() => navigatePage(pages[index + 1])}
-            >
-              下一页
-            </button>
-          </div>
-          <select
-            aria-label="谱页删除状态"
-            value={String(deleted)}
-            onChange={(e) => setDeleted(e.target.value === "true")}
-          >
-            <option value="false">使用中谱页</option>
-            <option value="true">历史回收谱页</option>
-          </select>
-          {pages.map((p, i) => (
-            <div
-              key={p.id}
-              data-page-id={p.id}
-              draggable={false}
-              onPointerDown={(e) => {
-                suppressPageClick.current = false;
-                if (
-                  !deleted &&
-                  e.button === 0 &&
-                  !(e.target as Element).closest(".page-controls")
-                )
-                  pageDrag.current = {
-                    id: p.id,
-                    x: e.clientX,
-                    y: e.clientY,
-                    moved: false,
-                  };
-              }}
-              onDragStart={(e) => e.dataTransfer.setData("text/plain", p.id)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                void reorder(e.dataTransfer.getData("text/plain"), p.id);
-              }}
-            >
-              <button
-                className={"page-button " + (p.id === pageId ? "active" : "")}
-                disabled={deleted}
-                onClick={() => navigatePage(p)}
-              >
-                ⠿ {p.pageOrder} · {p.name}
-              </button>
-              <div className="page-controls">
-                {!deleted && (
-                  <>
-                    <button
-                      disabled={!i}
-                      onClick={() => void reorder(p.id, pages[i - 1].id)}
-                    >
-                      上移
-                    </button>
-                    <button
-                      disabled={i === pages.length - 1}
-                      onClick={() => void reorder(p.id, pages[i + 1].id)}
-                    >
-                      下移
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={async () => {
-                    if (dirty) {
-                      setError("请先保存当前修改");
-                      return;
-                    }
-                    try {
-                      if (await permanentDelete("page", [p.id])) {
-                        if (p.id === pageId) go(base + "?" + originalQuery());
-                        else await loadPages();
-                      }
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : "删除失败");
-                    }
-                  }}
-                >
-                  永久删除
-                </button>
-              </div>
-            </div>
-          ))}
-        </aside>
+      <div className="editor-body single-page-editor" inert={busy}>
+
         <div
           className="stage-column"
           style={{ display: view === "crops" ? "none" : undefined }}

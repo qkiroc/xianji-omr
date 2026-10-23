@@ -7,11 +7,13 @@ import {
   api,
   json,
   Song,
+  PageImage,
   Dataset,
   PageResult,
   useQueryString,
 } from "../../shared/client";
 import { useNavigation } from "../navigation";
+interface PageRow extends PageImage { songName: string; boxCount: number }
 interface Snapshot {
   id: string;
   status: string;
@@ -22,7 +24,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
   const requestId = useRef(0);
   const q = useSearchParams(),
     { go } = useNavigation(),
-    [data, setData] = useState<PageResult<Song>>({
+    [data, setData] = useState<PageResult<PageRow>>({
       items: [],
       total: 0,
       page: 1,
@@ -47,8 +49,8 @@ export function SongList({ datasetId }: { datasetId: string }) {
     try {
       setError("");
       const [result, ds, ss] = await Promise.all([
-        api<PageResult<Song>>(
-          "/v2/datasets/" + datasetId + "/song-records?" + filters,
+        api<PageResult<PageRow>>(
+          "/v2/datasets/" + datasetId + "/pages?" + filters,
         ),
         api<Dataset[]>("/v2/datasets"),
         api<Song[]>("/v2/datasets/" + datasetId + "/songs"),
@@ -68,11 +70,11 @@ export function SongList({ datasetId }: { datasetId: string }) {
   }, [datasetId, filters]);
   const update = (values: Record<string, string | number | undefined>) =>
     go(base + "?" + useQueryString(new URLSearchParams(filters), values));
-  const remove = async (items: Song[], _restore = false) => {
+  const remove = async (items: PageRow[], _restore = false) => {
     try {
       if (
         await permanentDelete(
-          "song",
+          "page",
           items.map((s) => s.id),
         )
       )
@@ -81,12 +83,8 @@ export function SongList({ datasetId }: { datasetId: string }) {
       setError(e instanceof Error ? e.message : "删除失败");
     }
   };
-  const open = (s: Song, view = "original") =>
-    go(
-      s.first_page_id
-        ? `${base}/songs/${s.id}/pages/${s.first_page_id}?${useQueryString(new URLSearchParams(filters), { view })}`
-        : `${base}/songs/${s.id}?${filters}`,
-    );
+  const open = (s: PageRow, view = "original") =>
+    go(`${base}/songs/${s.songId}/pages/${s.id}?${useQueryString(new URLSearchParams(filters), { view })}`);
   const loadSnapshots = () =>
     api<Snapshot[]>("/v2/datasets/" + datasetId + "/snapshots")
       .then(setSnapshots)
@@ -101,7 +99,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
       <div className="section-head">
         <div>
           <button onClick={() => go("/datasets")}>‹ 全部数据集</button>
-          <h1>{dataset?.name || "歌曲列表"}</h1>
+          <h1>{dataset?.name || "谱页列表"}</h1>
           <p className="muted">{dataset?.description}</p>
         </div>
         <div className="actions">
@@ -167,7 +165,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
         </button>
       </form>
       <div className="actions">
-        <span>已选{selected.length}首</span>
+        <span>已选{selected.length}页</span>
         <button
           disabled={!selected.length}
           onClick={() =>
@@ -200,16 +198,15 @@ export function SongList({ datasetId }: { datasetId: string }) {
                   }
                 />
               </th>
-              <th>歌曲</th>
-              <th>谱页数</th>
+              <th>序号</th>
+              <th>归属歌曲</th>
               <th>框数</th>
               <th>复核状态</th>
-              <th>更新时间</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            {data.items.map((s) => (
+            {data.items.map((s, rowIndex) => (
               <tr
                 className="clickable"
                 key={s.id}
@@ -229,31 +226,29 @@ export function SongList({ datasetId }: { datasetId: string }) {
                     }
                   />
                 </td>
-                <td>{s.name}</td>
-                <td>{s.page_count}</td>
-                <td>{s.box_count}</td>
+                <td>{(page - 1) * pageSize + rowIndex + 1}</td>
+                <td>{s.songName}</td>
+                <td>{s.boxCount}</td>
                 <td>
                   <span
                     className={
                       "review-chip " +
                       (!deleted &&
-                      s.confirmed_count === s.page_count &&
-                      s.page_count > 0
+                      s.status === "confirmed"
                         ? "confirmed"
                         : "")
                     }
                   >
                     {deleted
                       ? "已删除"
-                      : `${s.confirmed_count}/${s.page_count}页已确认`}
+                      : s.status === "confirmed" ? "已确认" : "待标记"}
                   </span>
                 </td>
-                <td>{new Date(s.updated_at).toLocaleString()}</td>
                 <td onClick={(e) => e.stopPropagation()}>
                   {!deleted && (
                     <>
                       <button onClick={() => open(s, "crops")}>查看裁片</button>{" "}
-                      <button onClick={() => setEditing(s)}>
+                      <button onClick={() => setEditing(songs.find((song) => song.id === s.songId))}>
                         歌曲信息
                       </button>{" "}
                     </>
@@ -266,9 +261,9 @@ export function SongList({ datasetId }: { datasetId: string }) {
             ))}
             {!data.items.length && (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={6}>
                   <div className="table-empty">
-                    暂无符合条件的歌曲，请调整筛选或上传原图。
+                    暂无符合条件的谱页，请调整筛选或上传原图。
                   </div>
                 </td>
               </tr>
@@ -278,7 +273,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
       </div>
       <div className="pagination">
         <span>
-          共{data.total}首歌曲 · 第{page}页
+          共{data.total}张谱页 · 第{page}页
         </span>
         <select
           aria-label="每页条数"

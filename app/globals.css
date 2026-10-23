@@ -1263,3 +1263,7 @@ label > textarea {
   color: #b52e42;
   box-shadow: 0 4px 20px #1112;
 }
+
+/* Single-page annotation: canvas and contextual properties only. */
+.editor-body.single-page-editor { grid-template-columns: minmax(0, 1fr) 280px; }
+.editor-body.single-page-editor > .crop-results { grid-column: 1 / -1; }

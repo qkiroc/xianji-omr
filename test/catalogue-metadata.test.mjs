@@ -34,3 +34,19 @@ test('歌曲维度分页/聚合/排序，完整页序原子交换、并发冲突
  // Stable server pagination is by song, not by the number of pages in a song.
  await f.pool.query("INSERT INTO omr_songs(id,dataset_id,name,song_group_key,split) SELECT gen_random_uuid(),$1,'Song '||n,'g-'||n,'train' FROM generate_series(1,60) n",[ds.id]);const first=await catalogue(),second=await api('/v2/datasets/'+ds.id+'/song-records?pageSize=25&page=2');assert.equal(first.total,61);assert.equal(first.items.length,25);assert.ok(first.items.every(s=>!second.items.some(x=>x.id===s.id)));assert.equal((await api('/v2/datasets/'+ds.id+'/song-records?search=Song%201')).total,11);
 });
+
+test('单页工作队列：跨歌曲跳过确认页、末尾循环、无待办与数据集隔离',async t=>{
+ const f=await fixture({port:55459});t.after(()=>f.close());const {api,ds,song,upload}=await setup(f);
+ const a=await upload('first.png'),b=await upload('confirmed.png');
+ const other=await api('/v2/datasets/'+ds.id+'/songs',json({name:'B',songGroupKey:'b',split:'train'}),201);
+ const c=await upload('last.png',other);
+ for(const [i,p] of [a,b,c].entries())await f.pool.query("UPDATE omr_images SET created_at='2026-01-01'::timestamptz+($2::int*interval '1 second') WHERE id=$1",[p.image.id,i]);
+ await f.pool.query("UPDATE omr_images SET status='confirmed' WHERE id=$1",[b.image.id]);
+ const next=id=>api('/v2/datasets/'+ds.id+'/pages/'+id+'/neighbors');
+ assert.deepEqual((await next(c.image.id)).nextUnconfirmed,{id:a.image.id,songId:song.id});
+ assert.deepEqual((await next(a.image.id)).nextUnconfirmed,{id:c.image.id,songId:other.id});
+ const list=await api('/v2/datasets/'+ds.id+'/pages');assert.equal(list.total,3);assert.deepEqual(list.items.map(p=>p.id),[c.image.id,b.image.id,a.image.id]);assert.equal(list.items[0].songName,'B');
+ const isolated=await api('/v2/datasets',json({name:'隔离'}),201);await api('/v2/datasets/'+isolated.id+'/pages/'+a.image.id+'/neighbors',{},409);
+ await f.pool.query("UPDATE omr_images SET status='confirmed' WHERE song_id=ANY($1::uuid[])",[[song.id,other.id]]);
+ assert.equal((await next(c.image.id)).nextUnconfirmed,null);
+});

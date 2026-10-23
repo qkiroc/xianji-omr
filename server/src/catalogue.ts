@@ -131,7 +131,19 @@ export function registerCatalogue(router: any, { pool }: any) {
                   [...f.params, target.created_at, target.id],
                 )
               ).rows[0]?.id || null;
+            // Review queue is dataset-wide, independent of list status/search filters.
+            // Keep the catalogue order and wrap at the end, excluding the current page.
+            const nextUnconfirmed = (await c.query(
+              `SELECT i.id, i.song_id AS "songId" FROM omr_images i
+               JOIN omr_songs s ON s.id=i.song_id
+               WHERE s.dataset_id=$1 AND s.deleted_at IS NULL AND i.deleted_at IS NULL
+                 AND i.status<>'confirmed' AND i.id<>$2
+               ORDER BY CASE WHEN (i.created_at,i.id)<($3,$2::uuid) THEN 0 ELSE 1 END,
+                 i.created_at DESC,i.id DESC LIMIT 1`,
+              [req.params.datasetId, target.id, target.created_at],
+            )).rows[0] || null;
             return {
+              nextUnconfirmed,
               previous: await get(">", "ASC"),
               next: await get("<", "DESC"),
             };
