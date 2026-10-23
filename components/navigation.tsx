@@ -1,4 +1,5 @@
 "use client";
+import { ErrorToast } from "./ui/toast";
 import {
   createContext,
   useContext,
@@ -125,7 +126,7 @@ export function NavigationProvider({
           <section role="dialog" aria-label="未保存修改" className="modal">
             <h2>有未保存修改</h2>
             <p>内容仅在当前页面。请保存到服务端，或明确放弃。</p>
-            <p className="error">{error}</p>
+            <ErrorToast>{error}</ErrorToast>
             <div className="actions">
               <button
                 onClick={() => {
@@ -205,5 +206,5 @@ export function LegacyHash({ root = false }: { root?: boolean }) {
       active = false;
     };
   }, [go, root]);
-  return error ? <p className="error">{error}</p> : null;
+  return error ? <ErrorToast>{error}</ErrorToast> : null;
 }

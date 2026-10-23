@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { NavigationProvider } from "../components/navigation";
+import { ToastHost } from "../components/ui/toast";
 import { Shell } from "../components/shell";
 import "./globals.css";
 export const metadata: Metadata = {
@@ -22,6 +23,7 @@ export default function RootLayout({
         />
       </head>
       <body>
+        <ToastHost />
         <Suspense fallback={<p>正在加载…</p>}>
           <NavigationProvider>
             <Shell>{children}</Shell>

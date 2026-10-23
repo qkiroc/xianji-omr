@@ -1,4 +1,5 @@
 "use client";
+import { ErrorToast } from "../ui/toast";
 import {
   translateMeasure,
   originalBounds,
@@ -88,10 +89,10 @@ function Preview({ src, box }: { src: string; box: XYXY | null }) {
         style={{ maxWidth: "100%", height: "auto", display: "block" }}
       />
       {error && (
-        <p className="error" role="alert">
+        <ErrorToast>
           {error}
           <button onClick={() => setAttempt((n) => n + 1)}>重试裁片</button>
-        </p>
+        </ErrorToast>
       )}
       {!box && <p className="muted">几何/裁片范围尚未标记</p>}
     </>
@@ -540,7 +541,14 @@ export function LocalizationEditor({
     }
   };
   if (!record || !geometry)
-    return <p className="error">{error || "正在加载定位记录…"}</p>;
+    return (
+      <>
+        <ErrorToast>{error}</ErrorToast>
+        <p className="muted">
+          {error ? "定位记录加载失败，请刷新重试" : "正在加载定位记录…"}
+        </p>
+      </>
+    );
   return (
     <>
       <div className="editor-toolbar">
@@ -621,9 +629,7 @@ export function LocalizationEditor({
             : "方向键微调1像素 · Shift方向键10像素 · 不编辑音高/时值"}
         </span>
       </div>
-      <p className="error" style={{ margin: "4px 20px" }}>
-        {error}
-      </p>
+      <ErrorToast>{error}</ErrorToast>
       <div className="editor-body" inert={busy}>
         <aside className="sidebar">
           <h3>来源谱页</h3>

@@ -1,4 +1,5 @@
 "use client";
+import { ErrorToast } from "../ui/toast";
 import { Icon } from "../ui/icon";
 import { useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
@@ -69,7 +70,7 @@ export function DatasetList({
           </button>
         </div>
       </div>
-      <p className="error">{error}</p>
+      <ErrorToast>{error}</ErrorToast>
       <div className="catalogue-summary">
         <span>{deleted ? "回收站" : "全部数据集"}</span>
         <span>{loading ? "加载中…" : `${items.length} 个数据集`}</span>

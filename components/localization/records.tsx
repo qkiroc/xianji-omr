@@ -1,4 +1,5 @@
 "use client";
+import { ErrorToast } from "../ui/toast";
 import { clientId } from "../../shared/client";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -122,7 +123,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
         </select>
         <button>查询</button>
       </form>
-      <p className="error">{error}</p>
+      <ErrorToast>{error}</ErrorToast>
       <div className="table-scroll">
         <table>
           <thead>
@@ -192,7 +193,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
             <p className="small muted">
               上限100份/3000小节，更多可用CLI recordIds分批。
             </p>
-            <p className="error">{error}</p>
+            <ErrorToast>{error}</ErrorToast>
             {snapshots.map((s) => (
               <article className="panel" key={s.id}>
                 <p>
@@ -304,7 +305,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                 </p>
               </>
             )}
-            <p className="error">{error}</p>
+            <ErrorToast>{error}</ErrorToast>
             <div className="actions">
               <button
                 type="button"

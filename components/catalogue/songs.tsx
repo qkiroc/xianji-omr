@@ -1,4 +1,5 @@
 "use client";
+import { ErrorToast } from "../ui/toast";
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -192,7 +193,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
           {deleted ? "恢复所选" : "删除所选"}
         </button>
       </div>
-      <p className="error">{error}</p>
+      <ErrorToast>{error}</ErrorToast>
       <div className="table-scroll">
         <table>
           <thead>
@@ -346,7 +347,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
               描述
               <textarea name="description" defaultValue={dataset.description} />
             </label>
-            <p className="error">{error}</p>
+            <ErrorToast>{error}</ErrorToast>
             <button type="button" onClick={() => setDatasetEditing(false)}>
               取消
             </button>{" "}
@@ -456,7 +457,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
                 }
               }}
             />
-            <p className="error">{error}</p>
+            <ErrorToast>{error}</ErrorToast>
             <button onClick={() => setUpload(false)}>关闭</button>
           </section>
         </div>
@@ -483,7 +484,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
             >
               冻结全部确认数据
             </button>
-            <p className="error">{error}</p>
+            <ErrorToast>{error}</ErrorToast>
             {snapshots.map((s) => (
               <div className="panel" key={s.id}>
                 <b>
@@ -501,7 +502,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
                     </a>
                   </p>
                 )}
-                {s.error && <p className="error">{s.error}</p>}
+                {s.error && <ErrorToast>{s.error}</ErrorToast>}
                 {s.status === "failed" && (
                   <button
                     onClick={async () => {

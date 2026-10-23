@@ -1,4 +1,5 @@
 "use client";
+import { ErrorToast } from "../ui/toast";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -390,30 +391,6 @@ export function LayoutEditor({
         b.reviewStatus = "draft";
       }
     });
-  const review = async (id: string, status: string) => {
-    try {
-      if (dirty) await save();
-      const current = docRef.current!;
-      const result = await api<LayoutDocument>(
-        "/v2/pages/" +
-          current.image.id +
-          "/regions/" +
-          encodeURIComponent(id) +
-          "/review",
-        json({
-          version: current.image.version,
-          status,
-          acknowledged: status === "confirmed",
-        }),
-      );
-      setDoc(result);
-      docRef.current = result;
-      if (canvas.current) canvas.current.boxes = structuredClone(result.boxes);
-      setDirty(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "复核失败");
-    }
-  };
   const confirmPage = async (unconfirm = false) => {
     try {
       if (
@@ -555,7 +532,7 @@ export function LayoutEditor({
         </div>
       </div>
       {!!issues.length && (
-        <div className="region-validation" role="alert">
+        <ErrorToast>
           <strong>{issues.length} 个区域的谱行关系有问题</strong>
           <span>红色 ! 为问题区域，橙色虚线为所属谱行；修正后自动消失。</span>
           {issues.map((issue) => (
@@ -592,7 +569,7 @@ export function LayoutEditor({
               )}
             </span>
           ))}
-        </div>
+        </ErrorToast>
       )}
       <div className="tools" hidden={view === "crops"}>
         {["select", "draw", "pan"].map((m, i) => (
@@ -708,7 +685,7 @@ export function LayoutEditor({
           />
         </label>
       </div>
-      <p className="error" style={{ margin: "4px 20px" }}>
+      <ErrorToast>
         {error}{" "}
         {error && doc && (
           <button
@@ -720,7 +697,7 @@ export function LayoutEditor({
             重试图片加载
           </button>
         )}
-      </p>
+      </ErrorToast>
       <div className="editor-body" inert={busy}>
         <aside
           className="sidebar"
@@ -897,64 +874,117 @@ export function LayoutEditor({
           </div>
         </div>
         <aside className="properties" hidden={view === "crops"}>
-          <h3>新建框类别</h3>
-          <p className="muted small">
-            选择类别后，在原图拖出区域；已有框在下方属性中改类别。
-          </p>
-          <div className="category-grid">
-            {taxonomy.map((c) => (
-              <button
-                key={c.key}
-                className={currentClass === c.key ? "active" : ""}
-                onClick={() => {
-                  setCurrentClass(c.key);
-                  classRef.current = c.key;
-                  canvas.current?.setMode("draw");
-                  canvas.current?.select(null);
-                }}
-              >
-                {c.id} {c.name}
-              </button>
-            ))}
-          </div>
-          <h3>区域列表 {doc?.boxes.length || 0}</h3>
-          {selected && (
-            <p className="muted small">当前只显示选中框 · Esc 显示全部</p>
-          )}
-          <div className="box-list">
-            {doc?.boxes.map((b, i) => (
-              <button
-                key={b.id}
-                className={
-                  (b.id === selected ? "active " : "") +
-                  (issues.some((issue) => issue.boxId === b.id)
-                    ? "region-invalid"
-                    : "")
-                }
-                title={issues.find((issue) => issue.boxId === b.id)?.message}
-                onClick={() => {
-                  canvas.current?.setMode("select");
-                  canvas.current?.focusRegion(b.id);
-                }}
-              >
-                {issues.some((issue) => issue.boxId === b.id) ? "⚠ " : ""}
-                {i + 1} ·{" "}
-                {taxonomy.find((c) => c.key === b.classKey)?.name ||
-                  "历史未归类"}{" "}
-                · {b.width}×{b.height}
-              </button>
-            ))}
-          </div>
           {!selectedBox && (
-            <p className="muted small">
-              点击画布或区域列表选中一个框，再调整位置、大小与属性。
-            </p>
+            <>
+              <h3>新建框类别</h3>
+              <p className="muted small">
+                选择类别后，在原图拖出区域；已有框在下方属性中改类别。
+              </p>
+              <div className="category-grid">
+                {taxonomy.map((c) => (
+                  <button
+                    key={c.key}
+                    style={{
+                      color: c.color,
+                      borderColor: currentClass === c.key ? c.color : undefined,
+                      background:
+                        currentClass === c.key ? c.color + "14" : undefined,
+                    }}
+                    className={
+                      currentClass === c.key ? "category-selected" : ""
+                    }
+                    onClick={() => {
+                      setCurrentClass(c.key);
+                      classRef.current = c.key;
+                      canvas.current?.setMode("draw");
+                      canvas.current?.select(null);
+                    }}
+                  >
+                    <span
+                      className="category-dot"
+                      style={{ background: c.color }}
+                    />
+                    {c.id} {c.name}
+                  </button>
+                ))}
+              </div>
+              <h3>区域列表 {doc?.boxes.length || 0}</h3>
+              {selected && (
+                <p className="muted small">当前只显示选中框 · Esc 显示全部</p>
+              )}
+              <div className="box-list">
+                {doc?.boxes.map((b, i) => (
+                  <button
+                    key={b.id}
+                    className={
+                      (b.id === selected ? "active " : "") +
+                      (issues.some((issue) => issue.boxId === b.id)
+                        ? "region-invalid"
+                        : "")
+                    }
+                    style={{
+                      color: taxonomy.find((c) => c.key === b.classKey)?.color,
+                    }}
+                    title={
+                      issues.find((issue) => issue.boxId === b.id)?.message
+                    }
+                    onClick={() => {
+                      canvas.current?.setMode("select");
+                      canvas.current?.focusRegion(b.id);
+                    }}
+                  >
+                    {issues.some((issue) => issue.boxId === b.id) ? "⚠ " : ""}
+                    {i + 1} ·{" "}
+                    {taxonomy.find((c) => c.key === b.classKey)?.name ||
+                      "历史未归类"}{" "}
+                    · {b.width}×{b.height}
+                  </button>
+                ))}
+              </div>
+              {!selectedBox && (
+                <p className="muted small">
+                  点击画布或区域列表选中一个框，再调整位置、大小与属性。
+                </p>
+              )}
+            </>
           )}
           {selectedBox && (
             <>
+              <h3
+                className="selected-region-title"
+                style={{
+                  color: taxonomy.find((c) => c.key === selectedBox.classKey)
+                    ?.color,
+                }}
+              >
+                <span
+                  className="category-dot"
+                  style={{
+                    background: taxonomy.find(
+                      (c) => c.key === selectedBox.classKey,
+                    )?.color,
+                  }}
+                />
+                区域{" "}
+                {(doc?.boxes.findIndex((b) => b.id === selectedBox.id) ?? -1) +
+                  1}
+              </h3>
+              <button
+                className="properties-back"
+                onClick={() => canvas.current?.select(null)}
+              >
+                ‹ 返回页面配置
+              </button>
               <label>
                 类别
                 <select
+                  style={{
+                    color: taxonomy.find((c) => c.key === selectedBox.classKey)
+                      ?.color,
+                    borderColor: taxonomy.find(
+                      (c) => c.key === selectedBox.classKey,
+                    )?.color,
+                  }}
                   aria-label="选中框类别"
                   value={selectedBox.classKey || ""}
                   onChange={(e) =>
@@ -970,7 +1000,11 @@ export function LayoutEditor({
                 >
                   <option value="">历史未归类</option>
                   {taxonomy.map((c) => (
-                    <option value={c.key} key={c.key}>
+                    <option
+                      style={{ color: c.color }}
+                      value={c.key}
+                      key={c.key}
+                    >
                       {c.name}
                     </option>
                   ))}
@@ -1066,27 +1100,29 @@ export function LayoutEditor({
               )}
             </>
           )}
-          <label>
-            页类型
-            <select
-              value={doc?.image.pageType || "music"}
-              onChange={(e) => {
-                if (doc) {
-                  setDoc({
-                    ...doc,
-                    image: {
-                      ...doc.image,
-                      pageType: e.target.value as "music" | "negative",
-                    },
-                  });
-                  setDirty(true);
-                }
-              }}
-            >
-              <option value="music">音乐页</option>
-              <option value="negative">负样本（确无目标）</option>
-            </select>
-          </label>
+          {!selectedBox && (
+            <label>
+              页类型
+              <select
+                value={doc?.image.pageType || "music"}
+                onChange={(e) => {
+                  if (doc) {
+                    setDoc({
+                      ...doc,
+                      image: {
+                        ...doc.image,
+                        pageType: e.target.value as "music" | "negative",
+                      },
+                    });
+                    setDirty(true);
+                  }
+                }}
+              >
+                <option value="music">音乐页</option>
+                <option value="negative">负样本（确无目标）</option>
+              </select>
+            </label>
+          )}
         </aside>
         {doc && view === "crops" && (
           <LayoutCrops
@@ -1099,7 +1135,6 @@ export function LayoutEditor({
               focusTarget.current = id;
               viewOnly("original");
             }}
-            onReview={review}
             onRestore={async (id) => {
               try {
                 if (dirty && !persistedDeleted.current.has(id)) {

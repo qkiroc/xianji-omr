@@ -1,4 +1,5 @@
 "use client";
+import { ErrorToast } from "./ui/toast";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, json, ApiError } from "../shared/client";
@@ -44,7 +45,7 @@ export function CliAuthorize() {
   return (
     <section className="panel" style={{ maxWidth: 560, margin: "40px auto" }}>
       <h1>授权独立 CLI</h1>
-      <p className="error">
+      <p className="security-notice">
         {insecure
           ? "当前平台使用HTTP：登录和凭证为明文传输，PKCE不替代HTTPS。"
           : ""}
@@ -117,7 +118,7 @@ export function CliAuthorize() {
           </form>
         </>
       )}
-      <p className="error">{error}</p>
+      <ErrorToast>{error}</ErrorToast>
     </section>
   );
 }
@@ -135,7 +136,7 @@ export function CliGrants() {
     <section className="panel" style={{ maxWidth: 800, margin: "40px auto" }}>
       <a href="/datasets">‹ 返回数据集</a>
       <h1>CLI授权设备</h1>
-      <p className="error">{error}</p>
+      <ErrorToast>{error}</ErrorToast>
       {items.map((g) => (
         <article className="panel" key={g.id}>
           <b>{g.client_name}</b>

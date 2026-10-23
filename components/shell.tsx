@@ -1,4 +1,5 @@
 "use client";
+import { ErrorToast } from "./ui/toast";
 import { Icon } from "./ui/icon";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -53,7 +54,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               required
             />
           </label>
-          <p className="error">{error}</p>
+          <ErrorToast>{error}</ErrorToast>
           <button className="primary">登录</button>
         </form>
       </main>
