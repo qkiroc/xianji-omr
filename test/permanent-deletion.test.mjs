@@ -142,7 +142,7 @@ test("故障：部分OSS已删不伪报成功、持久任务阻止写入、重�
   assert.equal(f.objects.size, 0);
   assert.equal((await s.api("/deletions")).length, 0);
 });
-test("区域永久删除：父关联解除、删除历史清空、原图保留、旧PUT/restore不能恢复；整个数据集可永久清理", async (t) => {
+test("区域JSON保存删除与专用清理：原图保留、版本校验与数据集删除", async (t) => {
   const { f, s, preview } = await setup(t, 55472);
   const box = {
     id: "line",
@@ -165,13 +165,23 @@ test("区域永久删除：父关联解除、删除历史清空、原图保留�
       "PUT",
     ),
   );
-  await s.api(
+  const edited = await s.api(
     "/pages/" + page.image.id,
     json(
       { version: page.image.version, annotationFormat: "layout-v2", boxes: [] },
       "PUT",
     ),
+  );
+  assert.deepEqual(edited.boxes, []);
+  assert.equal(f.objects.size, 1);
+  await s.api(
+    "/pages/" + page.image.id,
+    json({ version: page.image.version, annotationFormat: "layout-v2", boxes: [box] }, "PUT"),
     409,
+  );
+  await s.api(
+    "/pages/" + page.image.id,
+    json({ version: edited.image.version, annotationFormat: "layout-v2", boxes: [box] }, "PUT"),
   );
   const p = await preview("region", [page.image.id], ["line"]);
   await s.api(

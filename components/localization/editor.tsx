@@ -1,7 +1,6 @@
 "use client";
 import { confirmAction } from "../../shared/dialog";
 import { Button, Select, Input, Dialog } from "../ui/antd";
-import { permanentDelete } from "../../shared/permanent-delete";
 import { ErrorToast } from "../ui/toast";
 import {
   translateMeasure,
@@ -935,45 +934,16 @@ export function LocalizationEditor({
               </label>
               <Button
                 disabled={busy}
-                onClick={async () => {
-                  if (dirty) {
-                    setError("请先保存或撤销其他修改，再永久删除小节");
-                    return;
-                  }
-                  setBusy(true);
-                  try {
-                    if (
-                      await permanentDelete(
-                        "locMeasure",
-                        [recordId],
-                        [measure.id],
-                      )
-                    ) {
-                      const value = await api<LocalizationRecord>(
-                        "/v2/localization/records/" + recordId,
-                      );
-                      setRecord(value);
-                      recordRef.current = value;
-                      setGeometry(value.geometry);
-                      current.current = value.geometry;
-                      setHistory([]);
-                      setFuture([]);
-                      setDirty(false);
-                      setMeasureId(value.geometry.measures[0]?.id || "");
-                      setEventId("");
-                      location({
-                        measure: value.geometry.measures[0]?.id,
-                        event: undefined,
-                      });
-                    }
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : "删除失败");
-                  } finally {
-                    setBusy(false);
-                  }
+                onClick={() => {
+                  edit((g) => {
+                    g.measures = g.measures.filter((m) => m.id !== measure.id);
+                  });
+                  setMeasureId("");
+                  setEventId("");
+                  location({ measure: undefined, event: undefined });
                 }}
               >
-                永久删除小节
+                删除小节
               </Button>
               <h3>完整谱行上下文</h3>
               {systemContext ? (

@@ -282,3 +282,30 @@ test("画布实际绘制红色问题框、感叹号及橙色虚线父谱行", ()
   assert.deepEqual(dashes[0], [6, 4]);
   c.dispose();
 });
+
+test("删除已保存父谱行和子框只是可撤销编辑；回撤保留此前的历史", () => {
+  const { c, changes } = setup();
+  c.boxes = [
+    { id: "parent", classKey: "system", parentSystemId: null, x: 0, y: 0, width: 80, height: 80 },
+    { id: "child", classKey: "guitar", parentSystemId: "parent", x: 5, y: 10, width: 20, height: 20 },
+  ];
+  c.select("child");
+  c.edit((boxes) => { boxes[1].x = 6; });
+  c.select("parent");
+  c.remove();
+  assert.equal(c.boxes.length, 1);
+  assert.equal(c.boxes[0].parentSystemId, null);
+  assert.equal(c.history.length, 2);
+  assert.equal(c.selected, null);
+  c.undo();
+  assert.equal(c.boxes.length, 2);
+  assert.equal(c.boxes[1].parentSystemId, "parent");
+  assert.equal(c.boxes[1].x, 6);
+  c.undo();
+  assert.equal(c.boxes[1].x, 5);
+  c.redo();
+  c.redo();
+  assert.equal(c.boxes.length, 1);
+  assert.equal(changes.at(-1).length, 1);
+  c.dispose();
+});

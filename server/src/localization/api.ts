@@ -535,24 +535,8 @@ export function registerLocalization(
         const geometry = validateGeometry(req.body.geometry, r.geometry.pages, {
           previous: r.geometry,
         });
-        insist(
-          r.geometry.measures.every((m) =>
-            geometry.measures.some((n) => n.id === m.id),
-          ),
-          "删除小节请使用永久删除预览与确认接口",
-          409,
-        );
-        insist(
-          r.geometry.measures.every((m) =>
-            m.events.every((e) =>
-              geometry.measures
-                .find((n) => n.id === m.id)
-                ?.events.some((v) => v.id === e.id),
-            ),
-          ),
-          "删除事件请使用永久删除预览与确认接口",
-          409,
-        );
+        // Measures and events are editable annotation JSON. Source attachments
+        // and immutable snapshots remain intact when geometry is saved.
         const status =
           fingerprint(geometry) === fingerprint(r.geometry)
             ? r.status

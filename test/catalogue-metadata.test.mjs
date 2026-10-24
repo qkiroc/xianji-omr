@@ -68,3 +68,41 @@ test('AI复核：真实CLI、分页筛选、版本冲突、修改失效且不成
  p=await api('/v2/pages/'+p.image.id+'/confirm',json({version:p.image.version,acknowledged:true,reviewType:'ai'}));
  p=await api('/v2/pages/'+p.image.id+'/confirm',json({version:p.image.version,acknowledged:true}));assert.equal(p.image.status,'confirmed');assert.equal(p.boxes[0].reviewStatus,'confirmed');
 });
+
+test("同类复核队列：过滤条件贯穿跳页，保存/确认后锚点仍有效，空队列不回到自己", async t => {
+  const f = await fixture({ port: 55510 }); t.after(() => f.close());
+  const { api, ds, song, upload } = await setup(f);
+  const other = await api('/v2/datasets/' + ds.id + '/songs',
+    json({ name: '第二首', songGroupKey: 'queue-b', split: 'train' }), 201);
+  const validation = await api('/v2/datasets/' + ds.id + '/songs',
+    json({ name: '验证歌曲', songGroupKey: 'queue-val', split: 'val' }), 201);
+  let a = await upload('queue-a.png'), b = await upload('queue-b.png', other);
+  const draft = await upload('queue-draft.png'), val = await upload('queue-val.png', validation);
+  const noSearchMatch = await upload('unrelated.png');
+  for (const [i, page] of [a, b, draft, val, noSearchMatch].entries()) {
+    await f.pool.query("UPDATE omr_images SET created_at='2026-01-01'::timestamptz+($2::int*interval '1 second') WHERE id=$1",
+      [page.image.id, 10 - i]);
+  }
+  for (const page of [a, b]) await api('/v2/pages/' + page.image.id,
+    json({ version: page.image.version, annotationFormat: 'layout-v2', boxes: [root] }, 'PUT'));
+  await f.pool.query("UPDATE omr_images SET status='ai_reviewed' WHERE id=ANY($1::uuid[])",
+    [[a.image.id, b.image.id, val.image.id, noSearchMatch.image.id]]);
+  const queue = id => api('/v2/datasets/' + ds.id + '/pages/' + id +
+    '/neighbors?status=ai_reviewed&split=train&search=queue');
+  assert.deepEqual((await queue(a.image.id)).nextPage, { id: b.image.id, songId: other.id });
+  assert.deepEqual((await queue(b.image.id)).previousPage, { id: a.image.id, songId: song.id });
+  a = await api('/v2/pages/' + a.image.id);
+  a = await api('/v2/pages/' + a.image.id + '/confirm', json({ version: a.image.version, acknowledged: true }));
+  assert.equal(a.image.status, 'confirmed');
+  assert.deepEqual((await queue(a.image.id)).nextPage, { id: b.image.id, songId: other.id });
+  b = await api('/v2/pages/' + b.image.id);
+  b = await api('/v2/pages/' + b.image.id, json({
+    version: b.image.version, annotationFormat: 'layout-v2', boxes: [{ ...root, width: 190 }],
+  }, 'PUT'));
+  assert.equal(b.image.status, 'draft');
+  assert.equal((await queue(b.image.id)).nextPage, null);
+  const rows = await api('/v2/datasets/' + ds.id + '/pages?pageSize=25');
+  assert.equal(rows.items.find(p => p.id === b.image.id).pageOrder, 1);
+  assert.equal(rows.items.find(p => p.id === draft.image.id).pageOrder, 2);
+  await api('/v2/datasets/' + ds.id + '/pages/' + a.image.id + '/neighbors?status=bad', {}, 400);
+});

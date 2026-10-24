@@ -14,7 +14,7 @@ import { legacyTarget } from "../shared/routes";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 type Guard = { dirty: boolean; save: () => Promise<void> };
 const Context = createContext<{
-  go: (href: string, replace?: boolean) => void;
+  go: (href: string, replace?: boolean, onNavigate?: () => void) => void;
   guard: (g: Guard | null) => void;
 }>({ go: () => {}, guard: () => {} });
 export function NavigationProvider({
@@ -41,8 +41,9 @@ export function NavigationProvider({
     } else fn();
   }, []);
   const go = useCallback(
-    (href: string, replace = false) =>
+    (href: string, replace = false, onNavigate?: () => void) =>
       attempt(() => {
+        onNavigate?.();
         replaceRoute.current = replace;
         replace ? router.replace(href) : router.push(href);
       }),
@@ -112,14 +113,12 @@ export function NavigationProvider({
       window.removeEventListener("popstate", pop, true);
     };
   }, []);
+  const guard = useCallback((value: Guard | null) => {
+    state.current = value;
+  }, []);
   return (
     <Context.Provider
-      value={{
-        go,
-        guard: (g) => {
-          state.current = g;
-        },
-      }}
+      value={{ go, guard }}
     >
       {children}
       {open && (

@@ -137,7 +137,7 @@ export function DatasetList({
                 }
               }}
             >
-              永久删除
+              删除
             </Button>
           </Card>
         ))}

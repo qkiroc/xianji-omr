@@ -327,11 +327,8 @@ export function registerPages(router: any, { pool, storage, config }: any) {
           ),
           p.status,
         );
-        need(
-          p.boxes.every((b: any) => boxes.some((x: any) => x.id === b.id)),
-          "删除已保存区域请使用永久删除预览与确认接口",
-          409,
-        );
+        // Regions are annotation JSON. Removing a box is saved with the page,
+        // without deleting source images, localization records or frozen exports.
         const deletedBoxes: any[] = [];
         const r = (
           await c.query(

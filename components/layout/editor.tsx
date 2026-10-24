@@ -1,6 +1,5 @@
 "use client";
-import { Tooltip } from "antd";
-import { confirmAction } from "../../shared/dialog";
+import { App, Button as AntButton, Dropdown, Segmented, Spin, Tag, Tooltip } from "antd";
 import { Details, Summary, Button, Input, Select, Textarea } from "../ui/antd";
 import { ErrorToast } from "../ui/toast";
 import { useRef, useEffect, useState, useCallback } from "react";
@@ -15,7 +14,12 @@ import {
   Song,
   useQueryString,
 } from "../../shared/client";
-import { permanentDelete } from "../../shared/permanent-delete";
+import { annotationChanged } from "../../shared/editor-document";
+import {
+  pageEditorTarget, pageTrailKey, readPageTrail, writePageTrail,
+  reviewLabels, reviewQueue, reviewQueueQuery,
+  type PageNeighbors, type PageTarget,
+} from "../../shared/editor-navigation";
 import { regionIssues } from "../../shared/region-issues";
 import { AnnotationCanvas } from "./canvas";
 import { useDirty, useNavigation } from "../navigation";
@@ -41,10 +45,11 @@ export function LayoutEditor({
   pageId?: string;
 }) {
   const cropState = useRef({ ...defaultCropState }),
-    savedBoxIds = useRef(new Set<string>()),
-    deleteRequest = useRef<() => void>(() => {}),
+    savedDocument = useRef<LayoutDocument | null>(null),
+    operation = useRef<"save" | "confirm" | "navigate" | null>(null),
     focusTarget = useRef<string | null>(null);
-  const { go } = useNavigation(),
+  const { message } = App.useApp();
+  const { go, guard } = useNavigation(),
     q = useSearchParams(),
     stage = useRef<HTMLDivElement>(null),
     canvas = useRef<AnnotationCanvas | null>(null),
@@ -62,36 +67,79 @@ export function LayoutEditor({
     [continuousDrawing, setContinuousDrawing] = useState(false),
     [history, setHistory] = useState({ undo: 0, redo: 0 }),
     [busy, setBusy] = useState(false),
-    [imageRetry, setImageRetry] = useState(0);
+    [imageRetry, setImageRetry] = useState(0),
+    [imageState, setImageState] = useState<"loading" | "ready" | "error">("loading"),
+    [neighbors, setNeighbors] = useState<PageNeighbors | null>(null),
+    [trail, setTrail] = useState<PageTarget[]>([]);
   docRef.current = doc;
   classRef.current = currentClass;
   const view = q.get("view") || q.get("editorView") || "original",
     base = "/datasets/" + datasetId,
     selectedBox = doc?.boxes.find((b) => b.id === selected);
   const issues = regionIssues(doc?.boxes || []);
-  const nextPage = async () => {
+  const queue = doc ? reviewQueue(new URLSearchParams(q), doc.image) : q.get("queue") || q.get("status") || "",
+    queueFilters = reviewQueueQuery(new URLSearchParams(q), queue).toString(),
+    trailKey = pageTrailKey(datasetId, new URLSearchParams(q), queue);
+  const getNeighbors = () => api<PageNeighbors>(
+    `/v2/datasets/${datasetId}/pages/${pageId}/neighbors?${queueFilters}`,
+  );
+  useEffect(() => {
+    if (!doc || doc.image.id !== pageId || !queue) return;
+    let active = true;
+    setNeighbors(null);
+    void getNeighbors().then((value) => {
+      if (active) setNeighbors(value);
+    }).catch((e) => {
+      if (active) setError(e.message);
+    });
+    return () => { active = false; };
+  }, [datasetId, pageId, queueFilters, doc?.image.version]);
+  useEffect(() => {
     if (!pageId) return;
-    try {
-      const result = await api<{
-        nextUnconfirmed: { id: string; songId: string } | null;
-      }>(`/v2/datasets/${datasetId}/pages/${pageId}/neighbors`);
-      if (!result.nextUnconfirmed) {
-        setError("当前数据集没有其他未确认的谱页");
-        return;
-      }
-      const target = result.nextUnconfirmed;
-      go(
-        `${base}/songs/${target.songId}/pages/${target.id}?${useQueryString(new URLSearchParams(q), { box: undefined })}`,
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "跳转失败");
+    const items = readPageTrail(window.sessionStorage, trailKey);
+    while (items.at(-1)?.id === pageId) items.pop();
+    writePageTrail(window.sessionStorage, trailKey, items);
+    setTrail(items);
+  }, [trailKey, pageId]);
+  const advance = async (direction: "previous" | "next", afterConfirm = false) => {
+    const current = docRef.current;
+    if (!current || current.image.id !== pageId) return;
+    const items = readPageTrail(window.sessionStorage, trailKey);
+    while (items.at(-1)?.id === pageId) items.pop();
+    const fromTrail = direction === "previous" && items.length > 0;
+    let target = fromTrail ? items.at(-1)! : null;
+    if (!target) {
+      const value = await getNeighbors();
+      setNeighbors(value);
+      target = direction === "previous" ? value.previousPage : value.nextPage;
     }
+    if (!target) {
+      void message.info(afterConfirm
+        ? `本页已确认，当前「${reviewLabels[queue] || "复核"}」队列已处理完成`
+        : direction === "previous" ? "已经是第一张谱页" : "当前队列没有其他谱页");
+      return;
+    }
+    go(pageEditorTarget(datasetId, target, new URLSearchParams(q), queue), false, () => {
+      if (fromTrail) items.pop();
+      else if (direction === "next") items.push({ id: current.image.id, songId: current.image.songId });
+      writePageTrail(window.sessionStorage, trailKey, items);
+      setTrail(items);
+    });
+  };
+  const movePage = async (direction: "previous" | "next") => {
+    if (operation.current) return;
+    operation.current = "navigate";
+    setBusy(true);
+    try { await advance(direction); }
+    catch (e) { setError(e instanceof Error ? e.message : "跳转失败"); }
+    finally { operation.current = null; setBusy(false); }
   };
   const originalQuery = () =>
     useQueryString(new URLSearchParams(q), {
       view: undefined,
       editorView: undefined,
       box: undefined,
+      queue: undefined,
     });
   useEffect(() => {
     let active = true;
@@ -115,6 +163,10 @@ export function LayoutEditor({
     let active = true;
     setError("");
     setDoc(null);
+    docRef.current = null;
+    savedDocument.current = null;
+    setImageState("loading");
+    setHistory({ undo: 0, redo: 0 });
     setDirty(false);
     setSelected(null);
     if (canvas.current) {
@@ -160,53 +212,55 @@ export function LayoutEditor({
         if (active) {
           setDoc(value);
           docRef.current = value;
-          savedBoxIds.current = new Set(value.boxes.map((b) => b.id));
+          savedDocument.current = value;
+          if (!q.get("queue")) {
+            const params = new URLSearchParams(window.location.search);
+            params.set("queue", reviewQueue(params, value.image));
+            window.history.replaceState({ ...window.history.state, omrReplace: true }, "",
+              window.location.pathname + "?" + params);
+          }
           setSelected(null);
         }
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        if (active) { setError(e.message); setImageState("error"); }
+      });
     return () => {
       active = false;
     };
-  }, [datasetId, songId, pageId, song?.id]);
+  }, [datasetId, songId, pageId, pageId ? undefined : song?.id]);
   useEffect(() => {
     if (!stage.current || !taxonomy.length) return;
     const c = new AnnotationCanvas(stage.current, {
       color: (key: string) =>
         taxonomy.find((c) => c.key === key)?.color || "#999",
       getClass: () => classRef.current,
-      onRemoveRequest: () => deleteRequest.current(),
       onSelect: (id: string | null) => {
         setSelected(id);
         const params = new URLSearchParams(window.location.search);
         if ((params.get("box") || null) !== id) {
           id ? params.set("box", id) : params.delete("box");
           window.history.replaceState(
-            { omrIndex: window.history.state?.omrIndex, omrReplace: true },
+            { ...window.history.state, omrReplace: true },
             "",
             window.location.pathname + "?" + params,
           );
         }
       },
       onChange: (boxes: Box[]) => {
-        setDoc((previous) => {
-          if (!previous) return previous;
-          const old = previous.boxes;
-          const reviewed = mergeRegionReviews(
-            previous.boxes,
-            boxes,
-            previous.image.status,
-          ) as Box[];
-          if (canvas.current) canvas.current.boxes = structuredClone(reviewed);
-          const next = {
-            ...previous,
-            boxes: reviewed,
-            deletedBoxes: [],
-          };
-          docRef.current = next;
-          return next;
-        });
-        setDirty(true);
+        const previous = docRef.current;
+        if (!previous) return;
+        const next = {
+          ...previous,
+          boxes: mergeRegionReviews(previous.boxes, boxes, previous.image.status) as Box[],
+          deletedBoxes: [],
+        };
+        const changed = annotationChanged(savedDocument.current, next);
+        if (!changed && savedDocument.current) next.boxes = structuredClone(savedDocument.current.boxes);
+        c.boxes = structuredClone(next.boxes);
+        docRef.current = next;
+        setDoc(next);
+        setDirty(changed);
       },
     });
     canvas.current = c;
@@ -241,6 +295,7 @@ export function LayoutEditor({
     if (!doc || !canvas.current) return;
     let active = true,
       url = "";
+    setImageState("loading");
     canvas.current.image = null;
     canvas.current.render();
     fetch("/api/v2/pages/" + doc.image.id + "/content")
@@ -256,6 +311,7 @@ export function LayoutEditor({
             () => active,
           );
           if (!active) return;
+          setImageState("ready");
           const box = new URLSearchParams(window.location.search).get("box");
           if (box && canvas.current?.boxes.some((b: Box) => b.id === box)) {
             new URLSearchParams(window.location.search).get("view") === "crops"
@@ -264,60 +320,58 @@ export function LayoutEditor({
           }
         }
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        if (active) { setError(e.message); setImageState("error"); }
+      });
     return () => {
       active = false;
       if (url) URL.revokeObjectURL(url);
     };
   }, [doc?.image.id, taxonomy, imageRetry]);
+  const persist = useCallback(async () => {
+    const current = docRef.current;
+    if (!current) return;
+    const result = await api<LayoutDocument>(
+      "/v2/pages/" + current.image.id,
+      json({
+        version: current.image.version,
+        annotationFormat: "layout-v2",
+        boxes: current.boxes,
+        pageType: current.image.pageType,
+      }, "PUT"),
+    );
+    if (docRef.current?.image.id !== current.image.id) return;
+    savedDocument.current = result;
+    if (docRef.current !== current) {
+      const pending = { ...docRef.current, image: { ...docRef.current.image,
+        version: result.image.version, status: "draft" as const } };
+      docRef.current = pending;
+      setDoc(pending);
+      setDirty(true);
+      throw Error("已保存上一版本，新的修改仍在本页，请再次保存");
+    }
+    docRef.current = result;
+    setDoc(result);
+    setDirty(false);
+    guard(null);
+    if (canvas.current) {
+      canvas.current.boxes = structuredClone(result.boxes);
+      canvas.current.history = [];
+      canvas.current.future = [];
+      canvas.current.render();
+    }
+  }, [guard]);
   const save = useCallback(async () => {
-    if (!docRef.current) return;
+    if (operation.current) throw Error("正在处理当前操作，请稍后重试");
+    operation.current = "save";
     setBusy(true);
     setError("");
-    try {
-      const current = docRef.current,
-        result = await api<LayoutDocument>(
-          "/v2/pages/" + current.image.id,
-          json(
-            {
-              version: current.image.version,
-              annotationFormat: "layout-v2",
-              boxes: current.boxes,
-              pageType: current.image.pageType,
-            },
-            "PUT",
-          ),
-        );
-      savedBoxIds.current = new Set(result.boxes.map((b) => b.id));
-      if (docRef.current === current) {
-        setDoc(result);
-        docRef.current = result;
-        if (canvas.current)
-          canvas.current.boxes = structuredClone(result.boxes);
-        setDirty(false);
-      } else if (docRef.current) {
-        const pending = {
-          ...docRef.current,
-          image: {
-            ...docRef.current.image,
-            version: result.image.version,
-            status: "draft" as const,
-          },
-        };
-        setDoc(pending);
-        docRef.current = pending;
-        setDirty(true);
-        throw Error(
-          "前一版本已保存，但保存期间又有新修改；新修改仍在当前页面，请再次保存",
-        );
-      }
-    } catch (e) {
+    try { await persist(); }
+    catch (e) {
       setError(e instanceof Error ? e.message : "保存失败");
       throw e;
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+    } finally { operation.current = null; setBusy(false); }
+  }, [persist]);
   useDirty(dirty, save);
   useEffect(() => {
     if (canvas.current) canvas.current.continuousDrawing = continuousDrawing;
@@ -336,7 +390,11 @@ export function LayoutEditor({
     canvas.current?.edit((boxes: Box[]) => {
       const b = boxes.find((b) => b.id === selected);
       if (b) {
+        const wasSystem = b.classKey === "system";
         fn(b);
+        if (wasSystem && b.classKey !== "system")
+          for (const child of boxes)
+            if (child.parentSystemId === b.id) child.parentSystemId = null;
         b.reviewStatus = "draft";
       }
     });
@@ -344,45 +402,44 @@ export function LayoutEditor({
     unconfirm = false,
     reviewType: "human" | "ai" = "human",
   ) => {
+    if (operation.current || !docRef.current) return;
+    operation.current = "confirm";
+    setBusy(true);
+    setError("");
     try {
-      if (
-        !unconfirm &&
-        !(await confirmAction(
-          reviewType === "ai"
-            ? "标记为 AI 已复核；此状态不等于人工确认，不纳入确认数据导出。"
-            : "我已检查全部目标与漏标情况；负样本确实无目标。",
-        ))
-      )
-        return;
-      if (dirty) await save();
+      if (annotationChanged(savedDocument.current, docRef.current)) await persist();
       const current = docRef.current!;
       const result = await api<LayoutDocument>(
-        "/v2/pages/" +
-          current.image.id +
-          "/" +
-          (unconfirm ? "unconfirm" : "confirm"),
-        json({
-          version: current.image.version,
-          acknowledged: true,
-          reviewType,
-        }),
+        "/v2/pages/" + current.image.id + "/" + (unconfirm ? "unconfirm" : "confirm"),
+        json({ version: current.image.version, acknowledged: true, reviewType }),
       );
+      if (docRef.current?.image.id !== current.image.id) return;
       setDoc(result);
       docRef.current = result;
-      if (canvas.current) canvas.current.boxes = structuredClone(result.boxes);
+      savedDocument.current = result;
+      if (canvas.current) {
+        canvas.current.boxes = structuredClone(result.boxes);
+        canvas.current.history = [];
+        canvas.current.future = [];
+        canvas.current.render();
+      }
       setDirty(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "确认失败");
-    }
+      guard(null);
+      if (unconfirm) void message.success("已改为草稿");
+      else {
+        void message.success(reviewType === "ai" ? "已标记为 AI 已复核" : "本页已确认");
+        // Confirmation succeeded even if the following navigation fails.
+        try { await advance("next", true); }
+        catch (e) {
+          setError("本页已确认，下一页加载失败：" + (e instanceof Error ? e.message : "请点击下一页重试"));
+        }
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : "确认失败"); }
+    finally { operation.current = null; setBusy(false); }
   };
-  const switchView = (v: string) =>
-    go(
-      `${base}/songs/${songId}/pages/${pageId}?${useQueryString(new URLSearchParams(q), { view: v })}`,
-      true,
-    ); // same-page view switches are handled below without leaving the document
   const viewOnly = (v: string) =>
     window.history.replaceState(
-      { omrIndex: window.history.state?.omrIndex, omrReplace: true },
+      { ...window.history.state, omrReplace: true },
       "",
       `${base}/songs/${songId}/pages/${pageId}?${useQueryString(new URLSearchParams(q), { view: v })}`,
     );
@@ -396,118 +453,47 @@ export function LayoutEditor({
           canvas.current.fit();
       });
   }, [view]);
-  deleteRequest.current = () => {
-    if (!selected || !docRef.current || busy) return;
-    if (!savedBoxIds.current.has(selected)) {
-      canvas.current?.removeLocal();
-      if (canvas.current) {
-        canvas.current.history = [];
-        canvas.current.future = [];
-        canvas.current.render();
-      }
-      return;
-    }
-    if (dirty) {
-      setError("请先保存或撤销其他修改，再永久删除已保存区域");
-      return;
-    }
-    const target = docRef.current.image.id,
-      id = selected;
-    setBusy(true);
-    void (async () => {
-      try {
-        if (!(await permanentDelete("region", [target], [id]))) return;
-        const value = await api<LayoutDocument>("/v2/pages/" + target);
-        if (docRef.current?.image.id !== target) return;
-        setDoc(value);
-        docRef.current = value;
-        savedBoxIds.current = new Set(value.boxes.map((b) => b.id));
-        setDirty(false);
-        if (canvas.current) {
-          canvas.current.boxes = structuredClone(value.boxes);
-          canvas.current.history = [];
-          canvas.current.future = [];
-          canvas.current.select(null);
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "永久删除失败");
-      } finally {
-        setBusy(false);
-      }
-    })();
-  };
   return (
     <>
-      <div className="editor-toolbar">
-        <div className="actions">
-          <Button onClick={() => go(base + "?" + originalQuery())}>
-            ‹ 返回谱页列表
-          </Button>
-          <Tooltip title={song?.name}>
-            <span className="editor-song-name">{song?.name}</span>
-          </Tooltip>
-          <Button
-            title="跳转至数据集内下一张未确认谱页，末尾循环查找"
-            disabled={busy || !pageId}
-            onClick={() => void nextPage()}
-          >
-            下一页
-          </Button>
+      <header className="editor-toolbar review-toolbar">
+        <div className="editor-identity">
+          <AntButton type="text" onClick={() => go(base + "?" + originalQuery())}>‹ 列表</AntButton>
+          <div className="editor-page-heading">
+            <Tooltip title={song?.name}><strong>{song?.name || "谱页标注"}</strong></Tooltip>
+            <span className="muted small">
+              {doc ? `第 ${doc.image.pageOrder} 页` : "加载中…"}
+              {doc && song ? ` / 共 ${song.page_count} 页` : ""}
+            </span>
+          </div>
         </div>
-        <div className="actions">
-          <Button
-            className={view === "original" ? "active" : ""}
-            onClick={() => viewOnly("original")}
-          >
-            原图编辑
-          </Button>
-          <Button
-            className={view === "crops" ? "active" : ""}
-            onClick={() => viewOnly("crops")}
-          >
-            裁片结果
-          </Button>
+        <div className="editor-page-navigation">
+          <AntButton disabled={busy || !doc || (!trail.length && !neighbors?.previousPage)}
+            onClick={() => void movePage("previous")}>‹ 上一页</AntButton>
+          <Tag className="queue-label">{reviewLabels[queue] || "复核"}队列</Tag>
+          <AntButton disabled={busy || !doc || (neighbors !== null && !neighbors.nextPage)}
+            onClick={() => void movePage("next")}>下一页 ›</AntButton>
         </div>
-        <div className="actions">
-          <span
-            className={"save-status " + (dirty ? "unsaved" : "saved")}
-            role="status"
-          >
-            {dirty
-              ? "未保存"
-              : doc?.image.status === "confirmed"
-                ? "已确认"
-                : doc?.image.status === "ai_reviewed"
-                  ? "AI 已复核"
-                  : "草稿"}
+        <div className="editor-save-actions">
+          <span className={"save-status " + (dirty ? "unsaved" : "saved")} role="status">
+            {dirty ? "未保存" : doc?.image.status === "confirmed" ? "已确认" :
+              doc?.image.status === "ai_reviewed" ? "AI 已复核" : doc ? "已保存" : ""}
           </span>
-          <Button
-            disabled={!doc || busy || !dirty}
-            onClick={() => void save().catch(() => {})}
-          >
-            保存
-          </Button>
-          <Button
-            disabled={!doc || busy}
-            onClick={() => void confirmPage(true)}
-          >
-            取消确认
-          </Button>
-          <Button
-            disabled={!doc || busy}
-            onClick={() => void confirmPage(false, "ai")}
-          >
-            AI 已复核
-          </Button>
-          <Button
-            disabled={!doc || busy}
-            className="primary"
-            onClick={() => void confirmPage()}
-          >
-            确认本页
-          </Button>
+          <AntButton disabled={!doc || busy || !dirty} loading={operation.current === "save"}
+            onClick={() => void save().catch(() => {})}>保存</AntButton>
+          <AntButton type="primary" disabled={!doc || busy || imageState !== "ready"}
+            loading={operation.current === "confirm"} onClick={() => void confirmPage()}>
+            确认并下一页
+          </AntButton>
+          <Dropdown trigger={["click"]} menu={{ items: [
+            { key: "ai", label: "标记为 AI 已复核", disabled: !doc || busy,
+              onClick: () => void confirmPage(false, "ai") },
+            { key: "draft", label: "改为草稿", disabled: !doc || busy || doc.image.status === "draft",
+              onClick: () => void confirmPage(true) },
+          ] }}>
+            <AntButton disabled={!doc || busy} aria-label="页面更多操作">•••</AntButton>
+          </Dropdown>
         </div>
-      </div>
+      </header>
       {!!issues.length && (
         <ErrorToast>
           <strong>{issues.length} 个区域的谱行关系有问题</strong>
@@ -548,17 +534,21 @@ export function LayoutEditor({
           ))}
         </ErrorToast>
       )}
-      <div className="tools" hidden={view === "crops"}>
+      <div className="tools review-tools">
+        <Segmented aria-label="编辑视图" value={view} onChange={(v) => viewOnly(String(v))}
+          options={[{ label: "原图标注", value: "original" }, { label: "裁片预览", value: "crops" }]} />
+        <div className="canvas-tools" hidden={view === "crops"} inert={busy || imageState !== "ready"}>
         {["select", "draw", "pan"].map((m, i) => (
           <Button
             key={m}
+            title={["选择 V", "画框 R", "平移 H"][i]}
             className={mode === m ? "active" : ""}
             onClick={() => {
               setMode(m);
               canvas.current?.setMode(m);
             }}
           >
-            {["选择 V", "画框 R", "平移 H"][i]}
+            {["选择", "画框", "平移"][i]}
           </Button>
         ))}
         <label className="inline-check">
@@ -594,92 +584,24 @@ export function LayoutEditor({
         </Select>
         <Button onClick={() => canvas.current?.zoom(zoom * 1.25)}>＋</Button>
         <Button onClick={() => canvas.current?.fit()}>适应</Button>
-        <Button disabled={!history.undo} onClick={() => canvas.current?.undo()}>
+        <Button title="撤销未保存的编辑 Ctrl/⌘ Z" disabled={!history.undo} onClick={() => canvas.current?.undo()}>
           撤销
         </Button>
-        <Button disabled={!history.redo} onClick={() => canvas.current?.redo()}>
+        <Button title="重做 Ctrl/⌘ Shift Z" disabled={!history.redo} onClick={() => canvas.current?.redo()}>
           重做
         </Button>
-        <Button disabled={!selected} onClick={() => canvas.current?.remove()}>
+        <Button className="danger" title="删除选区 Delete / Backspace，可撤销" disabled={!selected} onClick={() => canvas.current?.remove()}>
           删除框
         </Button>
-        <div className="spacer" />
-        <Button
-          disabled={!doc}
-          onClick={() => {
-            if (doc) void downloadBackup(doc).catch((e) => setError(e.message));
-          }}
-        >
-          导出本页JSON
-        </Button>
-        <label style={{ margin: 0 }}>
-          导入标注
-          <Input
-            type="file"
-            aria-label="导入标注JSON"
-            accept="application/json"
-            onChange={async (e) => {
-              const input = e.currentTarget,
-                file = input.files?.[0];
-              input.value = "";
-              if (!file || !doc) return;
-              try {
-                if (file.size > 32 * 1024 * 1024)
-                  throw Error("JSON备份超过32MiB");
-                const raw = JSON.parse(await file.text()) as Record<
-                  string,
-                  unknown
-                >;
-                if (
-                  raw.dataUrl ||
-                  (raw.image as { dataUrl?: string } | undefined)?.dataUrl
-                ) {
-                  if (dirty)
-                    throw Error("请先保存或放弃当前修改，再将备份导入为新页");
-                  const imported = await importBackup(raw, songId);
-                  go(
-                    `${base}/songs/${songId}/pages/${imported.image.id}?view=original`,
-                  );
-                  return;
-                }
-                if (!raw || typeof raw !== "object" || Array.isArray(raw))
-                  throw Error("JSON必须是对象");
-                const annotation = raw as unknown as LayoutDocument;
-                if (annotation.image?.id !== doc.image.id)
-                  throw Error(
-                    "请选择当前原图的标注JSON；导入为新页需包含dataUrl",
-                  );
-                if (!Array.isArray(annotation.boxes)) throw Error("缺少boxes");
-                for (const box of annotation.boxes)
-                  cropRectangle(box, doc.image.width, doc.image.height);
-                canvas.current?.edit((boxes: Box[]) =>
-                  boxes.splice(0, boxes.length, ...annotation.boxes),
-                );
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "导入失败");
-              }
-            }}
-          />
-        </label>
+        </div>
       </div>
-      <ErrorToast>
-        {error}{" "}
-        {error && doc && (
-          <Button
-            onClick={() => {
-              setError("");
-              setImageRetry((n) => n + 1);
-            }}
-          >
-            重试图片加载
-          </Button>
-        )}
-      </ErrorToast>
+      <ErrorToast>{error}</ErrorToast>
       <div className="editor-body single-page-editor" inert={busy}>
         <div
           className="stage-column"
           style={{ display: view === "crops" ? "none" : undefined }}
         >
+          <div className="stage-wrap">
           <div
             className="stage"
             ref={stage}
@@ -688,26 +610,22 @@ export function LayoutEditor({
           >
             <canvas />
           </div>
+          {imageState === "loading" && <div className="canvas-loading"><Spin /><span>正在加载谱页…</span></div>}
+          {imageState === "error" && <div className="canvas-loading">
+            <span>谱页加载失败</span>
+            <AntButton onClick={() => doc ? setImageRetry((n) => n + 1) : window.location.reload()}>重新加载</AntButton>
+          </div>}
+          </div>
           <div className="caption">
-            {doc
-              ? `${doc.image.width}×${doc.image.height} px · v${doc.image.version}`
-              : "选择或上传谱页"}{" "}
-            · {dirty ? "修改仅在当前页面" : "服务端已保存"} ·{" "}
-            {mode === "draw"
-              ? "拖动绘制区域"
-              : mode === "pan"
-                ? "拖动画布"
-                : "拖动选中框 / 四角缩放"}{" "}
-            · 空格拖动平移 · Ctrl/⌘滚轮缩放
+            <span>{doc ? `${doc.image.width} × ${doc.image.height} px · ${doc.boxes.length} 个区域` : "加载中…"}</span>
+            <span>空格拖动平移 · Ctrl/⌘ 滚轮缩放 · Esc 取消选择</span>
           </div>
         </div>
-        <aside className="properties" hidden={view === "crops"}>
+        <aside className="properties" hidden={view === "crops"} inert={imageState !== "ready"}>
           {!selectedBox && (
             <>
-              <h3>新建框类别</h3>
-              <p className="muted small">
-                选择类别后，在原图拖出区域；已有框在下方属性中改类别。
-              </p>
+              <h3>添加区域</h3>
+              <p className="muted small">选择类别，在原图上拖动画框</p>
               <div className="category-grid">
                 {taxonomy.map((c) => (
                   <Button
@@ -732,11 +650,12 @@ export function LayoutEditor({
                       className="category-dot"
                       style={{ background: c.color }}
                     />
-                    {c.id} {c.name}
+                    {c.name}
                   </Button>
                 ))}
               </div>
-              <h3>区域列表 {doc?.boxes.length || 0}</h3>
+              <h3 className="properties-section-title">全部区域 <span>{doc?.boxes.length || 0}</span></h3>
+              {!doc?.boxes.length && <p className="muted small">还没有区域，选择上方类别开始标注。</p>}
               {selected && (
                 <p className="muted small">当前只显示选中框 · Esc 显示全部</p>
               )}
@@ -801,7 +720,7 @@ export function LayoutEditor({
                 className="properties-back"
                 onClick={() => canvas.current?.select(null)}
               >
-                ‹ 返回页面配置
+                ‹ 全部区域 · Esc
               </Button>
               <label>
                 类别
@@ -844,6 +763,7 @@ export function LayoutEditor({
                   所属谱行
                   <Select
                     aria-label="所属谱行"
+                    disabled={selectedBox.classKey === "system" || (meta.includes(selectedBox.classKey || "") && selectedBox.metadata?.scope !== "local")}
                     value={selectedBox.parentSystemId || ""}
                     onChange={(e) =>
                       changeBox((b) => {
@@ -929,20 +849,19 @@ export function LayoutEditor({
             </>
           )}
           {!selectedBox && (
+            <div className="page-settings">
             <label>
-              页类型
+              页面内容
               <Select
                 value={doc?.image.pageType || "music"}
                 onChange={(e) => {
                   if (doc) {
-                    setDoc({
-                      ...doc,
-                      image: {
-                        ...doc.image,
-                        pageType: e.target.value as "music" | "negative",
-                      },
-                    });
-                    setDirty(true);
+                    const next = { ...doc, image: {
+                      ...doc.image, pageType: e.target.value as "music" | "negative",
+                    } };
+                    docRef.current = next;
+                    setDoc(next);
+                    setDirty(annotationChanged(savedDocument.current, next));
                   }
                 }}
               >
@@ -950,6 +869,67 @@ export function LayoutEditor({
                 <option value="negative">负样本（确无目标）</option>
               </Select>
             </label>
+            <Details className="backup-controls">
+              <Summary>导入 / 导出标注</Summary>
+        <Button
+          disabled={!doc}
+          onClick={() => {
+            if (doc) void downloadBackup(doc).catch((e) => setError(e.message));
+          }}
+        >
+          导出本页JSON
+        </Button>
+        <label style={{ margin: 0 }}>
+          导入标注
+          <Input
+            type="file"
+            aria-label="导入标注JSON"
+            accept="application/json"
+            onChange={async (e) => {
+              const input = e.currentTarget,
+                file = input.files?.[0];
+              input.value = "";
+              if (!file || !doc) return;
+              try {
+                if (file.size > 32 * 1024 * 1024)
+                  throw Error("JSON备份超过32MiB");
+                const raw = JSON.parse(await file.text()) as Record<
+                  string,
+                  unknown
+                >;
+                if (
+                  raw.dataUrl ||
+                  (raw.image as { dataUrl?: string } | undefined)?.dataUrl
+                ) {
+                  if (dirty)
+                    throw Error("请先保存或放弃当前修改，再将备份导入为新页");
+                  const imported = await importBackup(raw, songId);
+                  go(
+                    `${base}/songs/${songId}/pages/${imported.image.id}?view=original`,
+                  );
+                  return;
+                }
+                if (!raw || typeof raw !== "object" || Array.isArray(raw))
+                  throw Error("JSON必须是对象");
+                const annotation = raw as unknown as LayoutDocument;
+                if (annotation.image?.id !== doc.image.id)
+                  throw Error(
+                    "请选择当前原图的标注JSON；导入为新页需包含dataUrl",
+                  );
+                if (!Array.isArray(annotation.boxes)) throw Error("缺少boxes");
+                for (const box of annotation.boxes)
+                  cropRectangle(box, doc.image.width, doc.image.height);
+                canvas.current?.edit((boxes: Box[]) =>
+                  boxes.splice(0, boxes.length, ...annotation.boxes),
+                );
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "导入失败");
+              }
+            }}
+          />
+        </label>
+            </Details>
+            </div>
           )}
         </aside>
         {doc && view === "crops" && (

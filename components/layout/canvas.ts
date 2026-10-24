@@ -504,6 +504,7 @@ export class AnnotationCanvas {
     fn(this.boxes);
     if (JSON.stringify(before) === JSON.stringify(this.boxes)) return;
     this.history.push(before);
+    if (this.history.length > 100) this.history.shift();
     this.future = [];
     this.onChange(clone(this.boxes));
     this.render();
@@ -518,6 +519,7 @@ export class AnnotationCanvas {
     this.removeLocal();
   }
   removeLocal() {
+    this.finish(true);
     if (!this.selected || !this.boxes.some((b: any) => b.id === this.selected))
       return;
     const id = this.selected;

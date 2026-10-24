@@ -22,15 +22,15 @@ export function DeletionJobs() {
       <ErrorToast>{error}</ErrorToast>
       {!!jobs.length && (
         <Button className="deletion-jobs-button" onClick={() => setOpen(true)}>
-          永久清理待完成 · {jobs.length}
+          数据清理待完成 · {jobs.length}
         </Button>
       )}
       {open && (
         <Dialog>
           <section className="modal">
-            <h2>永久删除清理任务</h2>
+            <h2>删除清理任务</h2>
             <p>
-              数据库与OSS全部清理完成才会显示删除成功。存在待完成任务时暂停数据操作；可安全重试，不会重复删除其他数据。
+              有删除任务尚未完成，请重试后继续操作。
             </p>
             {jobs.map((j) => (
               <div className="panel" key={j.id}>

@@ -186,7 +186,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                       }
                     }}
                   >
-                    永久删除
+                    删除
                   </Button>
                 </TableCell>
               </TableRow>
@@ -241,7 +241,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                     }
                   }}
                 >
-                  永久删除快照
+                  删除快照
                 </Button>
                 <a href={"/api/v2/localization/snapshots/" + s.id + "/native"}>
                   原生JSON与原附件

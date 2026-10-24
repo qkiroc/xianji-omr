@@ -108,9 +108,9 @@ export function Input({
     return (
       <InputNumber
         {...(props as React.ComponentProps<typeof InputNumber>)}
-        value={value === undefined ? undefined : Number(value)}
+        value={value === undefined ? undefined : value === "" ? null : Number(value)}
         defaultValue={
-          defaultValue === undefined ? undefined : Number(defaultValue)
+          defaultValue === undefined ? undefined : defaultValue === "" ? null : Number(defaultValue)
         }
         onChange={(v) =>
           onChange?.(

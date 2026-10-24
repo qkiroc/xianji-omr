@@ -110,42 +110,67 @@ export function registerCatalogue(router: any, { pool }: any) {
           async (c: any) => {
             await datasetRecord(c, req.params.datasetId);
             need(ID.test(req.params.pageId), "页面ID无效");
-            const f = pageFilter(req.params.datasetId, req.query),
-              n = f.params.length + 1,
-              target = (
-                await c.query(
-                  "SELECT i.id,i.created_at::text AS created_at FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE " +
-                    f.where +
-                    " AND i.id=$" +
-                    n,
-                  [...f.params, req.params.pageId],
-                )
-              ).rows[0];
-            need(target, "页面不在当前筛选中，可能已删除或移动", 409);
-            const get = async (op: any, order: any) =>
+            // The anchor may have left its queue after save/confirm. Resolve it
+            // from the dataset, then apply the original filters to candidates.
+            const target = (
+              await c.query(
+                `SELECT i.id,i.created_at::text AS created_at FROM omr_images i
+                 JOIN omr_songs s ON s.id=i.song_id
+                 WHERE s.dataset_id=$1 AND s.deleted_at IS NULL
+                   AND i.deleted_at IS NULL AND i.id=$2`,
+                [req.params.datasetId, req.params.pageId],
+              )
+            ).rows[0];
+            need(target, "页面不在当前数据集中，可能已删除或移动", 409);
+            const f = pageFilter(req.params.datasetId, {
+              ...req.query,
+              deleted: "active",
+            });
+            const n = f.params.length + 1;
+            const get = async (op: string, order: string) =>
               (
                 await c.query(
-                  "SELECT i.id FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE " +
+                  'SELECT i.id,i.song_id AS "songId" FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE ' +
                     f.where +
-                    ` AND (i.created_at,i.id) ${op} ($${n},$${n + 1}) ORDER BY i.created_at ${order},i.id ${order} LIMIT 1`,
+                    ` AND (i.created_at,i.id) ${op} ($${n},$${n + 1}::uuid) ORDER BY i.created_at ${order},i.id ${order} LIMIT 1`,
                   [...f.params, target.created_at, target.id],
                 )
-              ).rows[0]?.id || null;
-            // Review queue is dataset-wide, independent of list status/search filters.
-            // Keep the catalogue order and wrap at the end, excluding the current page.
-            const nextUnconfirmed = (await c.query(
-              `SELECT i.id, i.song_id AS "songId" FROM omr_images i
-               JOIN omr_songs s ON s.id=i.song_id
-               WHERE s.dataset_id=$1 AND s.deleted_at IS NULL AND i.deleted_at IS NULL
-                 AND i.status<>'confirmed' AND i.id<>$2
-               ORDER BY CASE WHEN (i.created_at,i.id)<($3,$2::uuid) THEN 0 ELSE 1 END,
-                 i.created_at DESC,i.id DESC LIMIT 1`,
-              [req.params.datasetId, target.id, target.created_at],
-            )).rows[0] || null;
+              ).rows[0] || null;
+            // Keep the filtered catalogue order, wrapping once and excluding
+            // the anchor. A fixed status survives the anchor's status change.
+            const nextPage = (
+              await c.query(
+                'SELECT i.id,i.song_id AS "songId" FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE ' +
+                  f.where +
+                  ` AND i.id<>$${n}::uuid
+                   ORDER BY CASE WHEN (i.created_at,i.id)<($${n + 1},$${n}::uuid) THEN 0 ELSE 1 END,
+                     i.created_at DESC,i.id DESC LIMIT 1`,
+                [...f.params, target.id, target.created_at],
+              )
+            ).rows[0] || null;
+            const previousPage = await get(">", "ASC");
+            // Compatibility for older clients; the editor uses nextPage.
+            const pending = pageFilter(req.params.datasetId, {
+              ...req.query,
+              deleted: "active",
+            });
+            const pn = pending.params.length + 1;
+            const nextUnconfirmed = (
+              await c.query(
+                'SELECT i.id,i.song_id AS "songId" FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE ' +
+                  pending.where +
+                  ` AND i.status<>'confirmed' AND i.id<>$${pn}::uuid
+                   ORDER BY CASE WHEN (i.created_at,i.id)<($${pn + 1},$${pn}::uuid) THEN 0 ELSE 1 END,
+                     i.created_at DESC,i.id DESC LIMIT 1`,
+                [...pending.params, target.id, target.created_at],
+              )
+            ).rows[0] || null;
             return {
+              previousPage,
+              nextPage,
+              previous: previousPage?.id || null,
+              next: (await get("<", "DESC"))?.id || null,
               nextUnconfirmed,
-              previous: await get(">", "ASC"),
-              next: await get("<", "DESC"),
             };
           },
           { isolation: "REPEATABLE READ" },
