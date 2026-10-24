@@ -16,7 +16,7 @@ export async function fixture({port=55439,webPort=0,origin,previewLogin=false,mi
  let shim=process.env.OMR_TEST_ROOT_SHIM;
  if(process.getuid?.()===0&&!shim){shim=join(dir,'root-namespace-test.so');const p=spawn('gcc',['-shared','-fPIC',new URL('./root-namespace-shim.c',import.meta.url).pathname,'-ldl','-o',shim],{stdio:'ignore'});if((await once(p,'exit'))[0]!==0)throw Error('ROOT_NAMESPACE_TEST_SHIM_COMPILE_FAILED')}
  const env={...process.env,LD_LIBRARY_PATH:new URL('../node_modules/@embedded-postgres/linux-x64/native/lib/',import.meta.url).pathname,...(shim?{LD_PRELOAD:shim}:{})};
- const run=async(bin,args)=>{const p=spawn(binaries+bin,args,{env,stdio:'inherit'});const [code]=await once(p,'exit');if(code!==0)throw Error('ISOLATED_PG_'+bin+'_FAILED')};
+ const run=async(bin,args)=>{const p=spawn(binaries+bin,args,{env,stdio:'inherit'});const [code]=await once(p,'exit');if(code!==0){if(bin==='pg_ctl')console.error(await readFile(join(dir,'postgres.log'),'utf8').catch(()=>''));throw Error('ISOLATED_PG_'+bin+'_FAILED')}};
  await run('initdb',['-D',join(dir,'pg'),'-U','postgres','--auth=trust','--no-locale','-E','UTF8']);
  await run('pg_ctl',['-D',join(dir,'pg'),'-l',join(dir,'postgres.log'),'-o',`-h 127.0.0.1 -p ${port} -c unix_socket_directories=''  -c max_connections=20 -c shared_buffers=16MB`,'-w','start']);
  const cluster={async stop(){await run('pg_ctl',['-D',join(dir,'pg'),'-m','fast','-w','stop'])}};

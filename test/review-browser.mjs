@@ -9,7 +9,7 @@ import { cookieFor, grantFor, request, json } from "./cli-helpers.mjs";
 const nextApp = next({ dev: false, dir: process.cwd(), hostname: "127.0.0.1", port: 4179 });
 await nextApp.prepare();
 const f = await fixture({ port: 55512, webPort: 4179, previewLogin: true, webHandler: nextApp.getRequestHandler() });
-let browser;
+let browser, page;
 const output = ".test-data/review-browser";
 await mkdir(output, { recursive: true });
 try {
@@ -49,7 +49,7 @@ try {
   }
   await api("/datasets", json({ name: "VeryLongDatasetName".repeat(10), description: "LongUnbrokenDescription".repeat(60) }));
   browser = await chromium.launch({ headless: true, ...(process.env.OMR_BROWSER_CHANNEL ? { channel: process.env.OMR_BROWSER_CHANNEL } : {}) });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
   await page.goto(f.url + "/__test-login");
@@ -104,6 +104,16 @@ try {
   const viewBounds = await page.locator(".editor-view-switch").boundingBox();
   assert.ok(Math.abs(viewBounds.x + viewBounds.width / 2 - 720) <= 2, "View switch is centred in the header");
   await page.locator(".stage").focus();
+  await page.evaluate(() => {
+    window.__reviewTabEvents = [];
+    window.addEventListener("keydown", event => {
+      if (event.key === "Tab") window.__reviewTabEvents.push({
+        target: event.target.tagName, prevented: event.defaultPrevented,
+        openSelect: !!document.querySelector('.ant-select [aria-expanded="true"]'),
+        dialogs: [...document.querySelectorAll(".ant-modal-wrap")].filter(d => d.getClientRects().length).length,
+      });
+    });
+  });
   await page.keyboard.press("Tab");
   await page.locator(".crop-results").waitFor();
   await assertSelectArrows();
@@ -166,7 +176,14 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log("PASS: Chromium list page numbers, reversible deletion, failed-save retention, AI queue confirmation, previous-page return, review counts, split labels, compact rows, centred Tab view switching, card overflow, Select suffix alignment, 1024/390px layout.");
-} catch (error) {
+ } catch (error) {
+  if (page) {
+    console.error("Review browser state", await page.evaluate(() => ({
+      url: location.href, activeTag: document.activeElement?.tagName,
+      events: window.__reviewTabEvents,
+    })).catch(() => ({})));
+    await page.screenshot({ path: output + "/failure.png", fullPage: true }).catch(() => {});
+  }
   process.exitCode = 1;
   throw error;
 } finally {

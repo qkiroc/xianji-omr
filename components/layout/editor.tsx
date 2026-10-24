@@ -450,12 +450,13 @@ export function LayoutEditor({
           event.isComposing || event.defaultPrevented || busy) return;
       const target = event.target as Element | null;
       if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), .ant-select, .ant-input-number, [role="dialog"]') ||
-          document.querySelector(".ant-modal-root, .ant-select-dropdown:not(.ant-select-dropdown-hidden)")) return;
+          document.querySelector('.ant-select [aria-expanded="true"], .ant-select[aria-expanded="true"]') ||
+          [...document.querySelectorAll(".ant-modal-wrap")].some((dialog) => dialog.getClientRects().length > 0)) return;
       event.preventDefault();
       viewOnly(view === "original" ? "crops" : "original");
     };
-    window.addEventListener("keydown", toggle);
-    return () => window.removeEventListener("keydown", toggle);
+    window.addEventListener("keydown", toggle, true);
+    return () => window.removeEventListener("keydown", toggle, true);
   }, [view, busy, datasetId, songId, pageId, q]);
   useEffect(() => {
     if (view === "original")
