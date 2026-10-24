@@ -36,7 +36,6 @@ jobs:
         run: |
           reserved=$(sysctl -n net.ipv4.ip_local_reserved_ports)
           sudo sysctl -w "net.ipv4.ip_local_reserved_ports=${reserved:+$reserved,}55430-55520"
-      - run: npm test
       - name: Install browser for UI acceptance
         id: browser_install
         timeout-minutes: 3
@@ -53,6 +52,7 @@ jobs:
       - name: Verify review workflow in Chromium
         if: ${{ !cancelled() && steps.browser_install.outcome == 'success' }}
         run: node test/review-browser.mjs
+      - run: npm test
       - name: Save UI screenshots
         if: always()
         uses: actions/upload-artifact@v4
