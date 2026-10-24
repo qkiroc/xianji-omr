@@ -16,15 +16,15 @@ async function fixture(t){
  const original={sourceId:job.id,profiles:[{id:profile.id,songId:'edition-1',status:'complete',pages:[{pageIndex:0,pageId:'old-1',sha256:oldChecksum,version:4,status:'confirmed',boxCount:1}]}]};await writeFile(join(sourceDirectory,'state.json'),JSON.stringify(original));
  const values=new Map([['old-1',{image:{id:'old-1',datasetId:plan.datasetId,checksum:oldChecksum,width:1000,height:1400,version:4,status:'confirmed',source:'synthetic:original-v1:song-1:synth195-01'},boxes:annotation.boxes}]]);
  const song={id:'edition-1',name:'old edition',version:1,song_group_key:job.songGroupKey,split:job.split};
- const events=[],behavior={failSave:false,failAfterDeletion:false,unrelatedSnapshot:false,wrongGroup:false};let sequence=0;
+ const events=[],behavior={failSave:false,failAfterDeletion:false,unrelatedSnapshot:false,wrongGroup:false,renameDuringReorder:false,failRename:false};let sequence=0;
  const api=async(path,value,method)=>{
   events.push({path,value,method});
   if(path==='/api/v2/datasets/dataset-1/songs')return[{...song,song_group_key:behavior.wrongGroup?'other-group':job.songGroupKey}];
-  if(path==='/api/v2/songs/edition-1'){assert.equal(method,'PUT');assert.equal(value.version,song.version);Object.assign(song,{name:value.name,song_group_key:value.songGroupKey,split:value.split,version:song.version+1});return structuredClone(song);}
+  if(path==='/api/v2/songs/edition-1'){assert.equal(method,'PUT');assert.equal(value.version,song.version);if(behavior.failRename){behavior.failRename=false;const error=Error('metadata version conflict');error.status=409;throw error;}Object.assign(song,{name:value.name,song_group_key:value.songGroupKey,split:value.split,version:song.version+1});return structuredClone(song);}
   if(path==='/api/v2/songs/edition-1/pages')return[...values.values()].map(v=>({...v.image,name:v.image.id==='old-1'?'old.png':page.filename}));
   if(path==='/api/v2/deletions/preview')return{token:'preview-token',summary:{pages:1,snapshots:behavior.unrelatedSnapshot?1:0}};
-  if(path==='/api/v2/deletions/execute'){values.delete('old-1');if(behavior.failAfterDeletion){behavior.failAfterDeletion=false;throw Error('network interruption after delete');}return{deleted:true};}
-  if(path==='/api/v2/songs/edition-1/pages/reorder')return value.items.map((p,i)=>({...values.get(p.id).image,pageOrder:i+1}));
+  if(path==='/api/v2/deletions/execute'){values.delete('old-1');song.version++;if(behavior.failAfterDeletion){behavior.failAfterDeletion=false;throw Error('network interruption after delete');}return{deleted:true};}
+  if(path==='/api/v2/songs/edition-1/pages/reorder'){if(behavior.renameDuringReorder){song.name='Manually renamed';song.version++;}return value.items.map((p,i)=>({...values.get(p.id).image,pageOrder:i+1}));}
   const match=path.match(/^\/api\/v2\/pages\/([^/]+)(\/confirm)?$/);assert.ok(match,'unexpected mock route '+path);const current=values.get(match[1]);if(!current){const e=Error('not found');e.status=404;throw e;}
   if(match[2]){current.image.status='confirmed';current.image.version++;current.boxes=current.boxes.map(b=>({...b,reviewStatus:'confirmed'}));}
   else if(method==='PUT'){if(behavior.failSave){behavior.failSave=false;throw Error('interrupted annotation save');}current.boxes=structuredClone(value.boxes);current.image.source=value.source;current.image.version++;}
@@ -72,4 +72,27 @@ test('changing the renderer during an interrupted edition preserves the upload c
 test('a repaired edition is renamed after its images are safely replaced',async t=>{
  const f=await fixture(t);await f.run({revision:ACCOMPANIMENT_REVISION,result:{layoutRevision:ACCOMPANIMENT_REVISION,rendererSha256:'v3'},renameSong:true});
  const renamed=f.events.findIndex(e=>e.path==='/api/v2/songs/edition-1'),deleted=f.events.findIndex(e=>e.path.endsWith('/deletions/execute'));assert.ok(renamed>deleted);assert.equal(f.events[renamed].value.split,'val');assert.equal(f.events[renamed].value.songGroupKey,'group-1');
+});
+
+
+test('edition metadata uses the song version refreshed after old pages are deleted',async t=>{
+ const f=await fixture(t);await f.run({renameSong:true});
+ const renamed=f.events.findIndex(e=>e.path==='/api/v2/songs/edition-1');assert.equal(f.events[renamed].value.version,2);
+ const cleanup=f.events.findIndex(e=>e.path.endsWith('/deletions/execute'));
+ assert.ok(f.events.some((e,i)=>i>cleanup&&i<renamed&&e.path==='/api/v2/datasets/dataset-1/songs'));
+});
+
+test('a concurrent song rename is preserved while confirmed replacement pages remain recoverable',async t=>{
+ const f=await fixture(t);f.behavior.renameDuringReorder=true;
+ await assert.rejects(f.run({renameSong:true}),/Song name changed during replacement/);
+ assert.ok(!f.events.some(e=>e.path==='/api/v2/songs/edition-1'));assert.equal(f.values.get('new-1').image.status,'confirmed');assert.equal(f.uploads,1);
+ f.behavior.renameDuringReorder=false;await f.run({renameSong:true});assert.equal(f.uploads,1);
+});
+
+
+test('an interrupted metadata rename resumes confirmed pages without another upload',async t=>{
+ const f=await fixture(t);f.behavior.failRename=true;
+ await assert.rejects(f.run({renameSong:true}),e=>e.status===409);
+ assert.ok(!f.values.has('old-1'));assert.equal(f.values.get('new-1').image.status,'confirmed');
+ const state=await f.run({renameSong:true});assert.equal(state.phase,'complete');assert.equal(f.uploads,1);
 });

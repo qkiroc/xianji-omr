@@ -35,3 +35,5 @@ node tools/synthetic/configure-cloud.mjs
 
 也可在其他 Linux 云主机恢复：配置上述私密环境变量，执行 `node tools/synthetic/bootstrap-cloud.mjs`，在恢复后的 `.artifacts/synthetic-renderer` 内 `npm ci --ignore-scripts`，安装 Playwright Chromium 与中文字体，最后执行 `node tools/synthetic/revise-audition.mjs --run --cloud`。GitHub Actions 工作流给出了完整的安装顺序。
 
+
+A push to `main` normally runs verification only. A maintainer commit containing `[resume-synthetic]` also resumes production from the newest encrypted checkpoint, using the existing repository Secrets. This permits a deployed repair to continue an interrupted cloud batch.

@@ -44,7 +44,7 @@ jobs:
         run: node --test test/synthetic-cloud-auth.test.mjs test/synthetic-cloud.test.mjs test/synthetic-accompaniment.test.mjs test/synthetic-layout.test.mjs test/synthetic-replacement.test.mjs
 
   produce:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[resume-synthetic]'))
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -55,7 +55,7 @@ jobs:
       OMR_ASSET_KEY: ${{ secrets.OMR_ASSET_KEY }}
       OMR_CLI_TOKEN: ${{ secrets.OMR_CLI_TOKEN }}
       GH_TOKEN: ${{ github.token }}
-      LIMIT: ${{ inputs.limit }}
+      LIMIT: ${{ inputs.limit || '585' }}
       RESUME_RUN_ID: ${{ inputs.resume_run_id }}
     steps:
       - uses: actions/checkout@v7
@@ -121,7 +121,7 @@ jobs:
           await appendFile(process.env.GITHUB_STEP_SUMMARY,`Status: ${p.status}\n\nCompleted editions: ${p.completed.length} / 585\n\nConfirmed pages: ${p.completed.reduce((n,v)=>n+v.pages,0)}\n`);
           JS
       - name: Continue on the next cloud runner if needed
-        if: success() && inputs.auto_continue && steps.upload.outcome == 'success'
+        if: success() && (github.event_name == 'push' || inputs.auto_continue) && steps.upload.outcome == 'success'
         run: |
           state=$(node --input-type=module -e 'import{readFile}from"node:fs/promises";console.log(JSON.parse(await readFile(".artifacts/synthetic-renderer/audition-195-batch/accompaniment-revision-v3/progress.json","utf8")).status)')
           if [[ "$state" == 'paused' ]]; then
