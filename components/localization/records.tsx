@@ -1,4 +1,19 @@
 "use client";
+import { Pagination } from "antd";
+import {
+  Button,
+  Form,
+  Input,
+  Select,
+  Table,
+  TableHead,
+  TableRow,
+  TableHeading,
+  TableBody,
+  TableCell,
+  Dialog,
+  Textarea,
+} from "../ui/antd";
 import { permanentDelete } from "../../shared/permanent-delete";
 import { ErrorToast } from "../ui/toast";
 import { clientId } from "../../shared/client";
@@ -61,18 +76,18 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
     <>
       <div className="section-head">
         <div>
-          <button onClick={() => go("/localization/datasets")}>
+          <Button onClick={() => go("/localization/datasets")}>
             ‹ 定位数据集
-          </button>
+          </Button>
           <h1>{title}</h1>
           <p className="muted">
             独立几何标签 · 仅引用已有原图 · 历史AI状态不是人工确认
           </p>
         </div>
         <div className="actions">
-          <button onClick={() => setReference(true)}>引用原图</button>
-          <button onClick={() => setImporting(true)}>导入历史语料</button>
-          <button
+          <Button onClick={() => setReference(true)}>引用原图</Button>
+          <Button onClick={() => setImporting(true)}>导入历史语料</Button>
+          <Button
             onClick={async () => {
               setShowExports(true);
               try {
@@ -83,10 +98,10 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
             }}
           >
             冻结快照与导出
-          </button>
+          </Button>
         </div>
       </div>
-      <form
+      <Form
         className="filter-bar"
         onSubmit={(e) => {
           e.preventDefault();
@@ -100,61 +115,63 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
           });
         }}
       >
-        <input
+        <Input
           name="search"
           aria-label="搜索定位语料"
           placeholder="歌曲 / 原语料ID"
           defaultValue={q.get("search") || ""}
         />
-        <input
+        <Input
           name="source"
           placeholder="来源method"
           defaultValue={q.get("source") || ""}
         />
-        <select name="status" defaultValue={q.get("status") || ""}>
+        <Select name="status" defaultValue={q.get("status") || ""}>
           <option value="">全部状态</option>
           <option value="draft">待复核</option>
           <option value="confirmed">几何已确认</option>
-        </select>
-        <select name="split" defaultValue={q.get("split") || ""}>
+        </Select>
+        <Select name="split" defaultValue={q.get("split") || ""}>
           <option value="">全部split</option>
           <option>train</option>
           <option>val</option>
           <option>test</option>
-        </select>
-        <button>查询</button>
-      </form>
+        </Select>
+        <Button>查询</Button>
+      </Form>
       <ErrorToast>{error}</ErrorToast>
       <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>歌曲 / 语料</th>
-              <th>来源ID / revision</th>
-              <th>曲组</th>
-              <th>split</th>
-              <th>几何状态</th>
-              <th>来源</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeading>歌曲 / 语料</TableHeading>
+              <TableHeading>来源ID / revision</TableHeading>
+              <TableHeading>曲组</TableHeading>
+              <TableHeading>split</TableHeading>
+              <TableHeading>几何状态</TableHeading>
+              <TableHeading>来源</TableHeading>
+              <TableHeading>操作</TableHeading>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {data.items.map((r) => (
-              <tr
+              <TableRow
                 className="clickable"
                 key={r.id}
                 onClick={() => go(base + "/records/" + r.id + "?" + q)}
               >
-                <td>{r.title}</td>
-                <td>
+                <TableCell>{r.title}</TableCell>
+                <TableCell>
                   {r.corpus_id} · r{r.corpus_revision}
-                </td>
-                <td>{r.group_key}</td>
-                <td>{r.split}</td>
-                <td>{r.status === "confirmed" ? "几何已确认" : "待复核"}</td>
-                <td>{r.source}</td>
-                <td onClick={(e) => e.stopPropagation()}>
-                  <button
+                </TableCell>
+                <TableCell>{r.group_key}</TableCell>
+                <TableCell>{r.split}</TableCell>
+                <TableCell>
+                  {r.status === "confirmed" ? "几何已确认" : "待复核"}
+                </TableCell>
+                <TableCell>{r.source}</TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <Button
                     onClick={async () => {
                       try {
                         if (await permanentDelete("locRecord", [r.id])) {
@@ -170,36 +187,30 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                     }}
                   >
                     永久删除
-                  </button>
-                </td>
-              </tr>
+                  </Button>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
-      <div className="pagination">
-        <span>共{data.total}份来源语料</span>
-        <button
-          disabled={data.page <= 1}
-          onClick={() => update({ page: data.page - 1 })}
-        >
-          上一页
-        </button>
-        <button
-          disabled={data.page * data.pageSize >= data.total}
-          onClick={() => update({ page: data.page + 1 })}
-        >
-          下一页
-        </button>
-      </div>
+      <Pagination
+        className="pagination"
+        current={data.page}
+        pageSize={data.pageSize}
+        total={data.total}
+        showSizeChanger={false}
+        showTotal={(n) => `共 ${n} 份来源语料`}
+        onChange={(page) => update({ page })}
+      />
       {showExports && (
-        <div className="modal-backdrop">
+        <Dialog>
           <section className="modal">
             <h2>定位快照与导出</h2>
             <p>
               只冻结人工确认的几何，不代表音乐内容真值；历史修订不会自动合并成金标。
             </p>
-            <button
+            <Button
               onClick={async () => {
                 try {
                   await api("/v2" + base + "/snapshots", json({}));
@@ -210,7 +221,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
               }}
             >
               冻结全部已确认定位
-            </button>
+            </Button>
             <p className="small muted">
               上限100份/3000小节，更多可用CLI recordIds分批。
             </p>
@@ -220,7 +231,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                 <p>
                   {new Date(s.created_at).toLocaleString()} · {s.id}
                 </p>
-                <button
+                <Button
                   onClick={async () => {
                     try {
                       if (await permanentDelete("locSnapshot", [s.id]))
@@ -231,7 +242,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                   }}
                 >
                   永久删除快照
-                </button>
+                </Button>
                 <a href={"/api/v2/localization/snapshots/" + s.id + "/native"}>
                   原生JSON与原附件
                 </a>{" "}
@@ -241,13 +252,13 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                 </a>
               </article>
             ))}
-            <button onClick={() => setShowExports(false)}>关闭</button>
+            <Button onClick={() => setShowExports(false)}>关闭</Button>
           </section>
-        </div>
+        </Dialog>
       )}
       {(reference || importing) && (
-        <div className="modal-backdrop">
-          <form
+        <Dialog>
+          <Form
             className="modal"
             onSubmit={async (e) => {
               e.preventDefault();
@@ -316,11 +327,11 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
               <>
                 <label>
                   平台原图UUID
-                  <input name="page" required />
+                  <Input name="page" required />
                 </label>
                 <label>
                   歌曲/样本标题
-                  <input name="title" />
+                  <Input name="title" />
                 </label>
                 <p>
                   不会重复上传图片，曲组和split继承原图所属歌曲。新建记录没有预标注几何。
@@ -330,7 +341,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
               <>
                 <label>
                   完整JSON（corpus + sourcePageMap）
-                  <textarea name="payload" required rows={12} />
+                  <Textarea name="payload" required rows={12} />
                 </label>
                 <p>
                   未知字段和音乐内容保留为只读original；历史accepted不会自动人工确认。大批数据请使用CLI
@@ -340,7 +351,7 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
             )}
             <ErrorToast>{error}</ErrorToast>
             <div className="actions">
-              <button
+              <Button
                 type="button"
                 onClick={() => {
                   setReference(false);
@@ -348,13 +359,13 @@ export function LocalizationRecords({ datasetId }: { datasetId: string }) {
                 }}
               >
                 取消
-              </button>
-              <button disabled={busy}>
+              </Button>
+              <Button disabled={busy}>
                 {busy ? "处理中…" : "导入为待复核"}
-              </button>
+              </Button>
             </div>
-          </form>
-        </div>
+          </Form>
+        </Dialog>
       )}
     </>
   );

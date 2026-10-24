@@ -1,4 +1,5 @@
 "use client";
+import { Form, Input, Button } from "./ui/antd";
 import { ErrorToast } from "./ui/toast";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -51,7 +52,7 @@ export function CliAuthorize() {
           : ""}
       </p>
       {login && (
-        <form
+        <Form
           onSubmit={async (e) => {
             e.preventDefault();
             const form = e.currentTarget,
@@ -73,19 +74,19 @@ export function CliAuthorize() {
         >
           <label>
             用户名
-            <input name="username" autoComplete="username" required />
+            <Input name="username" autoComplete="username" required />
           </label>
           <label>
             密码
-            <input
+            <Input
               type="password"
               name="password"
               autoComplete="current-password"
               required
             />
           </label>
-          <button>登录</button>
-        </form>
+          <Button>登录</Button>
+        </Form>
       )}
       {info && (
         <>
@@ -103,19 +104,19 @@ export function CliAuthorize() {
             只有明确点击授权后CLI才能获得专用可撤销凭证，有效期{info.tokenDays}
             天。CLI不读取浏览器Cookie。
           </p>
-          <form
+          <Form
             method="POST"
             action={"/api/cli-auth/requests/" + id + "/decision"}
           >
             <div className="actions">
-              <button name="decision" value="deny">
+              <Button name="decision" value="deny">
                 拒绝
-              </button>
-              <button name="decision" value="approve" className="primary">
+              </Button>
+              <Button name="decision" value="approve" className="primary">
                 授权
-              </button>
+              </Button>
             </div>
-          </form>
+          </Form>
         </>
       )}
       <ErrorToast>{error}</ErrorToast>
@@ -144,7 +145,7 @@ export function CliGrants() {
             {g.device_description} · {g.scopes.join("、")}
           </p>
           <p>到期：{new Date(g.expires_at).toLocaleString()}</p>
-          <button
+          <Button
             disabled={!!g.revoked_at}
             onClick={async () => {
               try {
@@ -156,7 +157,7 @@ export function CliGrants() {
             }}
           >
             {g.revoked_at ? "已撤销" : "撤销授权"}
-          </button>
+          </Button>
         </article>
       ))}
     </section>

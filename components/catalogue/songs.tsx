@@ -1,4 +1,19 @@
 "use client";
+import {
+  Button,
+  Form,
+  Input,
+  Select,
+  Table,
+  TableHead,
+  TableRow,
+  TableHeading,
+  TableBody,
+  TableCell,
+  Dialog,
+  Textarea,
+} from "../ui/antd";
+import { Pagination, Tag } from "antd";
 import { ErrorToast } from "../ui/toast";
 import { permanentDelete } from "../../shared/permanent-delete";
 import { useState, useEffect, useRef } from "react";
@@ -13,7 +28,10 @@ import {
   useQueryString,
 } from "../../shared/client";
 import { useNavigation } from "../navigation";
-interface PageRow extends PageImage { songName: string; boxCount: number }
+interface PageRow extends PageImage {
+  songName: string;
+  boxCount: number;
+}
 interface Snapshot {
   id: string;
   status: string;
@@ -84,7 +102,9 @@ export function SongList({ datasetId }: { datasetId: string }) {
     }
   };
   const open = (s: PageRow, view = "original") =>
-    go(`${base}/songs/${s.songId}/pages/${s.id}?${useQueryString(new URLSearchParams(filters), { view })}`);
+    go(
+      `${base}/songs/${s.songId}/pages/${s.id}?${useQueryString(new URLSearchParams(filters), { view })}`,
+    );
   const loadSnapshots = () =>
     api<Snapshot[]>("/v2/datasets/" + datasetId + "/snapshots")
       .then(setSnapshots)
@@ -98,27 +118,27 @@ export function SongList({ datasetId }: { datasetId: string }) {
     <>
       <div className="section-head">
         <div>
-          <button onClick={() => go("/datasets")}>‹ 全部数据集</button>
+          <Button onClick={() => go("/datasets")}>‹ 全部数据集</Button>
           <h1>{dataset?.name || "谱页列表"}</h1>
           <p className="muted">{dataset?.description}</p>
         </div>
         <div className="actions">
-          <button onClick={() => setDatasetEditing(true)}>数据集信息</button>
-          <button
+          <Button onClick={() => setDatasetEditing(true)}>数据集信息</Button>
+          <Button
             onClick={() => {
               setExports(true);
               void loadSnapshots();
             }}
           >
             冻结快照与导出
-          </button>
-          <button onClick={() => setEditing(null)}>＋ 新建歌曲</button>
-          <button className="primary" onClick={() => setUpload(true)}>
+          </Button>
+          <Button onClick={() => setEditing(null)}>＋ 新建歌曲</Button>
+          <Button className="primary" onClick={() => setUpload(true)}>
             ＋ 上传原图
-          </button>
+          </Button>
         </div>
       </div>
-      <form
+      <Form
         key={filters}
         className="filter-bar"
         onSubmit={(e) => {
@@ -133,13 +153,13 @@ export function SongList({ datasetId }: { datasetId: string }) {
           });
         }}
       >
-        <input
+        <Input
           name="search"
           aria-label="搜索歌曲"
           placeholder="搜索歌曲、文件名或来源"
           defaultValue={q.get("search") || ""}
         />
-        <select
+        <Select
           name="status"
           aria-label="复核状态"
           defaultValue={q.get("status") || ""}
@@ -149,25 +169,25 @@ export function SongList({ datasetId }: { datasetId: string }) {
           <option value="ai_reviewed">AI 已复核</option>
           <option value="confirmed">已确认</option>
           <option value="legacy">历史未归类</option>
-        </select>
-        <select name="split" defaultValue={q.get("split") || ""}>
+        </Select>
+        <Select name="split" defaultValue={q.get("split") || ""}>
           <option value="">全部集合</option>
           <option>train</option>
           <option>val</option>
           <option>test</option>
-        </select>
-        <select name="deleted" defaultValue={q.get("deleted") || "active"}>
+        </Select>
+        <Select name="deleted" defaultValue={q.get("deleted") || "active"}>
           <option value="active">使用中</option>
           <option value="deleted">历史回收数据</option>
-        </select>
-        <button>查询</button>
-        <button type="button" onClick={() => go(base)}>
+        </Select>
+        <Button>查询</Button>
+        <Button type="button" onClick={() => go(base)}>
           重置
-        </button>
-      </form>
+        </Button>
+      </Form>
       <div className="actions">
         <span>已选{selected.length}页</span>
-        <button
+        <Button
           disabled={!selected.length}
           onClick={() =>
             void remove(
@@ -177,15 +197,15 @@ export function SongList({ datasetId }: { datasetId: string }) {
           }
         >
           永久删除所选
-        </button>
+        </Button>
       </div>
       <ErrorToast>{error}</ErrorToast>
       <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>
-                <input
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeading>
+                <Input
                   aria-label="全选"
                   type="checkbox"
                   checked={
@@ -198,23 +218,23 @@ export function SongList({ datasetId }: { datasetId: string }) {
                     )
                   }
                 />
-              </th>
-              <th>序号</th>
-              <th>归属歌曲</th>
-              <th>框数</th>
-              <th>复核状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
+              </TableHeading>
+              <TableHeading>序号</TableHeading>
+              <TableHeading>归属歌曲</TableHeading>
+              <TableHeading>框数</TableHeading>
+              <TableHeading>复核状态</TableHeading>
+              <TableHeading>操作</TableHeading>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {data.items.map((s, rowIndex) => (
-              <tr
+              <TableRow
                 className="clickable"
                 key={s.id}
                 onClick={() => !deleted && open(s)}
               >
-                <td onClick={(e) => e.stopPropagation()}>
-                  <input
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <Input
                     type="checkbox"
                     aria-label={"选择 " + s.name}
                     checked={selected.includes(s.id)}
@@ -226,78 +246,74 @@ export function SongList({ datasetId }: { datasetId: string }) {
                       )
                     }
                   />
-                </td>
-                <td>{(page - 1) * pageSize + rowIndex + 1}</td>
-                <td>{s.songName}</td>
-                <td>{s.boxCount}</td>
-                <td>
-                  <span
+                </TableCell>
+                <TableCell>{(page - 1) * pageSize + rowIndex + 1}</TableCell>
+                <TableCell>{s.songName}</TableCell>
+                <TableCell>{s.boxCount}</TableCell>
+                <TableCell>
+                  <Tag
                     className={
                       "review-chip " +
-                      (!deleted &&
-                      s.status === "confirmed"
+                      (!deleted && s.status === "confirmed"
                         ? "confirmed"
-                        : s.status === "ai_reviewed" ? "ai-reviewed" : "")
+                        : s.status === "ai_reviewed"
+                          ? "ai-reviewed"
+                          : "")
                     }
                   >
                     {deleted
                       ? "已删除"
-                      : s.status === "confirmed" ? "已确认" : s.status === "ai_reviewed" ? "AI 已复核" : "待标记"}
-                  </span>
-                </td>
-                <td onClick={(e) => e.stopPropagation()}>
+                      : s.status === "confirmed"
+                        ? "已确认"
+                        : s.status === "ai_reviewed"
+                          ? "AI 已复核"
+                          : "待标记"}
+                  </Tag>
+                </TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
                   {!deleted && (
                     <>
-                      <button onClick={() => open(s, "crops")}>查看裁片</button>{" "}
-                      <button onClick={() => setEditing(songs.find((song) => song.id === s.songId))}>
+                      <Button onClick={() => open(s, "crops")}>查看裁片</Button>{" "}
+                      <Button
+                        onClick={() =>
+                          setEditing(songs.find((song) => song.id === s.songId))
+                        }
+                      >
                         歌曲信息
-                      </button>{" "}
+                      </Button>{" "}
                     </>
                   )}
-                  <button onClick={() => void remove([s], deleted)}>
+                  <Button onClick={() => void remove([s], deleted)}>
                     永久删除
-                  </button>
-                </td>
-              </tr>
+                  </Button>
+                </TableCell>
+              </TableRow>
             ))}
             {!data.items.length && (
-              <tr>
-                <td colSpan={6}>
+              <TableRow>
+                <TableCell colSpan={6}>
                   <div className="table-empty">
                     暂无符合条件的谱页，请调整筛选或上传原图。
                   </div>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
-      <div className="pagination">
-        <span>
-          共{data.total}张谱页 · 第{page}页
-        </span>
-        <select
-          aria-label="每页条数"
-          value={pageSize}
-          onChange={(e) => update({ pageSize: e.target.value, page: 1 })}
-        >
-          {[25, 50, 100].map((n) => (
-            <option key={n}>{n}</option>
-          ))}
-        </select>
-        <button disabled={page <= 1} onClick={() => update({ page: page - 1 })}>
-          上一页
-        </button>
-        <button
-          disabled={page * pageSize >= data.total}
-          onClick={() => update({ page: page + 1 })}
-        >
-          下一页
-        </button>
-      </div>
+      <Pagination
+        className="pagination"
+        current={page}
+        pageSize={pageSize}
+        total={data.total}
+        showSizeChanger
+        pageSizeOptions={[25, 50, 100]}
+        showTotal={(n) => `共 ${n} 张谱页`}
+        onChange={(current, size) => update({ page: current, pageSize: size })}
+      />
       {datasetEditing && dataset && (
-        <div className="modal-backdrop">
-          <form
+        <Dialog>
+          <Form
             className="modal"
             onSubmit={async (e) => {
               e.preventDefault();
@@ -324,23 +340,23 @@ export function SongList({ datasetId }: { datasetId: string }) {
             <h2>数据集信息</h2>
             <label>
               名称
-              <input name="name" required defaultValue={dataset.name} />
+              <Input name="name" required defaultValue={dataset.name} />
             </label>
             <label>
               描述
-              <textarea name="description" defaultValue={dataset.description} />
+              <Textarea name="description" defaultValue={dataset.description} />
             </label>
             <ErrorToast>{error}</ErrorToast>
-            <button type="button" onClick={() => setDatasetEditing(false)}>
+            <Button type="button" onClick={() => setDatasetEditing(false)}>
               取消
-            </button>{" "}
-            <button>保存</button>
-          </form>
-        </div>
+            </Button>{" "}
+            <Button>保存</Button>
+          </Form>
+        </Dialog>
       )}
       {editing !== undefined && (
-        <div className="modal-backdrop">
-          <form
+        <Dialog>
+          <Form
             className="modal"
             onSubmit={async (e) => {
               e.preventDefault();
@@ -370,11 +386,11 @@ export function SongList({ datasetId }: { datasetId: string }) {
             <h2>歌曲信息</h2>
             <label>
               歌曲名称
-              <input name="name" required defaultValue={editing?.name} />
+              <Input name="name" required defaultValue={editing?.name} />
             </label>
             <label>
               同曲分组键
-              <input
+              <Input
                 name="group"
                 required
                 defaultValue={editing?.song_group_key}
@@ -382,37 +398,37 @@ export function SongList({ datasetId }: { datasetId: string }) {
             </label>
             <label>
               训练用途
-              <select name="split" defaultValue={editing?.split || "train"}>
+              <Select name="split" defaultValue={editing?.split || "train"}>
                 <option>train</option>
                 <option>val</option>
                 <option>test</option>
-              </select>
+              </Select>
             </label>
             <p className="muted">同一曲组不得跨训练/验证/测试集合。</p>
             <div className="actions">
-              <button type="button" onClick={() => setEditing(undefined)}>
+              <Button type="button" onClick={() => setEditing(undefined)}>
                 取消
-              </button>
-              <button>保存</button>
+              </Button>
+              <Button>保存</Button>
             </div>
-          </form>
-        </div>
+          </Form>
+        </Dialog>
       )}
       {upload && (
-        <div className="modal-backdrop">
+        <Dialog>
           <section className="modal">
             <h2>上传原图</h2>
             <label>
               所属歌曲
-              <select id="upload-song">
+              <Select id="upload-song">
                 {songs.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
-            <input
+            <Input
               aria-label="上传图片"
               type="file"
               accept="image/png,image/jpeg,image/webp"
@@ -441,18 +457,18 @@ export function SongList({ datasetId }: { datasetId: string }) {
               }}
             />
             <ErrorToast>{error}</ErrorToast>
-            <button onClick={() => setUpload(false)}>关闭</button>
+            <Button onClick={() => setUpload(false)}>关闭</Button>
           </section>
-        </div>
+        </Dialog>
       )}
       {exports && (
-        <div className="modal-backdrop">
+        <Dialog>
           <section className="modal">
             <h2>冻结快照与导出</h2>
             <p>
               只导出确认页；历史快照不可变。超过200页用CLI选择一批，不拆分数据集。
             </p>
-            <button
+            <Button
               onClick={async () => {
                 try {
                   await api(
@@ -466,7 +482,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
               }}
             >
               冻结全部确认数据
-            </button>
+            </Button>
             <ErrorToast>{error}</ErrorToast>
             {snapshots.map((s) => (
               <div className="panel" key={s.id}>
@@ -486,7 +502,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
                   </p>
                 )}
                 {s.error && <ErrorToast>{s.error}</ErrorToast>}
-                <button
+                <Button
                   onClick={async () => {
                     try {
                       if (await permanentDelete("snapshot", [s.id]))
@@ -497,9 +513,9 @@ export function SongList({ datasetId }: { datasetId: string }) {
                   }}
                 >
                   永久删除快照
-                </button>
+                </Button>
                 {s.status === "failed" && (
-                  <button
+                  <Button
                     onClick={async () => {
                       try {
                         await api("/v2/snapshots/" + s.id + "/retry", json({}));
@@ -510,13 +526,13 @@ export function SongList({ datasetId }: { datasetId: string }) {
                     }}
                   >
                     重试导出
-                  </button>
+                  </Button>
                 )}
               </div>
             ))}
-            <button onClick={() => setExports(false)}>关闭</button>
+            <Button onClick={() => setExports(false)}>关闭</Button>
           </section>
-        </div>
+        </Dialog>
       )}
     </>
   );

@@ -1,4 +1,6 @@
 "use client";
+import { Select, Button, Dialog, Form, Input, Textarea } from "../ui/antd";
+import { Card } from "antd";
 import { ErrorToast } from "../ui/toast";
 import { permanentDelete } from "../../shared/permanent-delete";
 import { Icon } from "../ui/icon";
@@ -55,7 +57,7 @@ export function DatasetList({
         </div>
         <div className="actions">
           {!localization && (
-            <select
+            <Select
               aria-label="数据集状态"
               value={String(deleted)}
               onChange={(e) =>
@@ -64,11 +66,11 @@ export function DatasetList({
             >
               <option value="false">使用中</option>
               <option value="true">历史回收数据</option>
-            </select>
+            </Select>
           )}
-          <button className="primary" onClick={() => setCreate(true)}>
+          <Button className="primary" onClick={() => setCreate(true)}>
             ＋ 新建数据集
-          </button>
+          </Button>
         </div>
       </div>
       <ErrorToast>{error}</ErrorToast>
@@ -78,8 +80,8 @@ export function DatasetList({
       </div>
       <div className="cards" aria-busy={loading}>
         {items.map((d) => (
-          <article key={d.id} className="card">
-            <button
+          <Card key={d.id} className="card">
+            <Button
               className="card-open"
               style={{
                 border: 0,
@@ -118,8 +120,8 @@ export function DatasetList({
                     : d.updated_at,
                 ).toLocaleString()}
               </p>
-            </button>
-            <button
+            </Button>
+            <Button
               className="card-delete"
               onClick={async () => {
                 try {
@@ -136,8 +138,8 @@ export function DatasetList({
               }}
             >
               永久删除
-            </button>
-          </article>
+            </Button>
+          </Card>
         ))}
       </div>
       {!loading && !items.length && !error && (
@@ -150,15 +152,15 @@ export function DatasetList({
               : "新建数据集，开始整理歌曲与标注数据。"}
           </p>
           {!deleted && (
-            <button className="primary" onClick={() => setCreate(true)}>
+            <Button className="primary" onClick={() => setCreate(true)}>
               ＋ 新建数据集
-            </button>
+            </Button>
           )}
         </div>
       )}
       {create && (
-        <div className="modal-backdrop">
-          <form
+        <Dialog>
+          <Form
             className="modal"
             onSubmit={async (e) => {
               e.preventDefault();
@@ -181,20 +183,20 @@ export function DatasetList({
             <h2>新建数据集</h2>
             <label>
               名称
-              <input name="name" required maxLength={200} />
+              <Input name="name" required maxLength={200} />
             </label>
             <label>
               描述
-              <textarea name="description" />
+              <Textarea name="description" />
             </label>
             <div className="actions">
-              <button type="button" onClick={() => setCreate(false)}>
+              <Button type="button" onClick={() => setCreate(false)}>
                 取消
-              </button>
-              <button className="primary">创建</button>
+              </Button>
+              <Button className="primary">创建</Button>
             </div>
-          </form>
-        </div>
+          </Form>
+        </Dialog>
       )}
     </>
   );

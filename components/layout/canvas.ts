@@ -71,7 +71,7 @@ export class AnnotationCanvas {
       (e: any) => {
         if (
           ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) ||
-          document.querySelector("dialog[open], .modal-backdrop") ||
+          document.querySelector("dialog[open], .ant-modal-root") ||
           e.target.isContentEditable ||
           this.stage.closest?.("[inert]") ||
           !this.stage.clientHeight ||

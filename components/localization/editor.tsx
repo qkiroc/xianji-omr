@@ -1,4 +1,6 @@
 "use client";
+import { confirmAction } from "../../shared/dialog";
+import { Button, Select, Input, Dialog } from "../ui/antd";
 import { permanentDelete } from "../../shared/permanent-delete";
 import { ErrorToast } from "../ui/toast";
 import {
@@ -92,7 +94,7 @@ function Preview({ src, box }: { src: string; box: XYXY | null }) {
       {error && (
         <ErrorToast>
           {error}
-          <button onClick={() => setAttempt((n) => n + 1)}>重试裁片</button>
+          <Button onClick={() => setAttempt((n) => n + 1)}>重试裁片</Button>
         </ErrorToast>
       )}
       {!box && <p className="muted">几何/裁片范围尚未标记</p>}
@@ -290,7 +292,7 @@ export function LocalizationEditor({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "s") return;
-      if (document.querySelector(".modal-backdrop")) return;
+      if (document.querySelector(".ant-modal-root")) return;
       e.preventDefault();
       if (dirty && !busy && recordRef.current) void save().catch(() => {});
     };
@@ -499,9 +501,9 @@ export function LocalizationEditor({
     try {
       if (
         kind === "confirm" &&
-        !window.confirm(
+        !(await confirmAction(
           "我已检查全部小节/事件几何、六弦线与人工完整性。几何确认不等于内容真值。",
-        )
+        ))
       )
         return;
       if (dirty) await save();
@@ -554,7 +556,7 @@ export function LocalizationEditor({
     <>
       <div className="editor-toolbar">
         <div className="actions">
-          <button
+          <Button
             onClick={() =>
               go(
                 base +
@@ -568,7 +570,7 @@ export function LocalizationEditor({
             }
           >
             ‹ 定位样本列表
-          </button>
+          </Button>
           <b>{record.title}</b>
         </div>
         <span>小节与事件定位 · 几何任务</span>
@@ -583,27 +585,27 @@ export function LocalizationEditor({
                 ? "几何已确认"
                 : "待复核"}
           </span>
-          <button
+          <Button
             disabled={!dirty || busy}
             onClick={() => void save().catch(() => {})}
           >
             保存
-          </button>
-          <button disabled={busy} onClick={() => void command("unconfirm")}>
+          </Button>
+          <Button disabled={busy} onClick={() => void command("unconfirm")}>
             撤销确认
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={busy}
             className="primary"
             onClick={() => void command("confirm")}
           >
             确认几何与完整性
-          </button>
+          </Button>
         </div>
       </div>
       <div className="tools">
         {(["select", "measure", "event", "staff"] as const).map((v, i) => (
-          <button
+          <Button
             key={v}
             className={mode === v ? "active" : ""}
             onClick={() => {
@@ -612,18 +614,18 @@ export function LocalizationEditor({
             }}
           >
             {["选择/拖动", "画小节框", "点击补事件", "逐根标记六弦线"][i]}
-          </button>
+          </Button>
         ))}
-        <button disabled={!history.length} onClick={() => undo()}>
+        <Button disabled={!history.length} onClick={() => undo()}>
           撤销
-        </button>
-        <button disabled={!future.length} onClick={() => undo(true)}>
+        </Button>
+        <Button disabled={!future.length} onClick={() => undo(true)}>
           重做
-        </button>
-        <button onClick={() => setZoom(Math.max(0.25, zoom / 1.25))}>−</button>
+        </Button>
+        <Button onClick={() => setZoom(Math.max(0.25, zoom / 1.25))}>−</Button>
         <span>{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom(Math.min(4, zoom * 1.25))}>＋</button>
-        <button onClick={() => setShowSource(true)}>只读原始来源附件</button>
+        <Button onClick={() => setZoom(Math.min(4, zoom * 1.25))}>＋</Button>
+        <Button onClick={() => setShowSource(true)}>只读原始来源附件</Button>
         <span className="muted small">
           {mode === "staff"
             ? `请从上到下点击六根弦线（${staffClicks.length}/6）`
@@ -635,7 +637,7 @@ export function LocalizationEditor({
         <aside className="sidebar">
           <h3>来源谱页</h3>
           {geometry.pages.map((p) => (
-            <button
+            <Button
               key={p.localPageId}
               className={
                 "page-button " + (pageId === p.localPageId ? "active" : "")
@@ -654,11 +656,11 @@ export function LocalizationEditor({
               }}
             >
               {p.localPageId}
-            </button>
+            </Button>
           ))}
           <h3>小节 / 轨道</h3>
           {geometry.measures.map((m, i) => (
-            <button
+            <Button
               key={m.id}
               className={"page-button " + (measureId === m.id ? "active" : "")}
               onClick={() => selectMeasure(m)}
@@ -667,10 +669,10 @@ export function LocalizationEditor({
               <br />
               {m.geometryConfirmed ? "已确认" : "待复核"} ·{" "}
               {m.events.filter((e) => e.status !== "rejected").length}事件
-            </button>
+            </Button>
           ))}
           <div className="actions">
-            <button
+            <Button
               disabled={!measure || geometry.measures.indexOf(measure) <= 0}
               onClick={() =>
                 selectMeasure(
@@ -679,8 +681,8 @@ export function LocalizationEditor({
               }
             >
               上一小节
-            </button>
-            <button
+            </Button>
+            <Button
               disabled={
                 !measure ||
                 geometry.measures.indexOf(measure) >=
@@ -693,7 +695,7 @@ export function LocalizationEditor({
               }
             >
               下一小节
-            </button>
+            </Button>
           </div>
         </aside>
         <section
@@ -844,7 +846,7 @@ export function LocalizationEditor({
             <p>
               正在读取来源原图…
               {error && (
-                <button onClick={() => setRetry((n) => n + 1)}>重试</button>
+                <Button onClick={() => setRetry((n) => n + 1)}>重试</Button>
               )}
             </p>
           )}
@@ -855,7 +857,7 @@ export function LocalizationEditor({
             <>
               <label>
                 轨道
-                <select
+                <Select
                   value={measure.track}
                   onChange={(e) =>
                     edit((g) => {
@@ -866,11 +868,11 @@ export function LocalizationEditor({
                 >
                   <option>guitar</option>
                   <option>melody</option>
-                </select>
+                </Select>
               </label>
               <label>
                 声部
-                <input
+                <Input
                   value={measure.voice}
                   onChange={(e) =>
                     edit((g) => {
@@ -882,7 +884,7 @@ export function LocalizationEditor({
               </label>
               <label>
                 小节号
-                <input
+                <Input
                   type="number"
                   min={1}
                   value={measure.barNumber ?? ""}
@@ -898,7 +900,7 @@ export function LocalizationEditor({
               </label>
               <label>
                 原谱行ID（可空）
-                <input
+                <Input
                   value={measure.systemId || ""}
                   onChange={(e) =>
                     edit((g) => {
@@ -919,7 +921,7 @@ export function LocalizationEditor({
               />
               <label>
                 六根弦线（有限小数，用逗号分隔）
-                <input
+                <Input
                   key={measure.id + JSON.stringify(measure.staffLines)}
                   defaultValue={measure.staffLines?.join(",") || ""}
                   onBlur={(e) => {
@@ -931,7 +933,7 @@ export function LocalizationEditor({
                   }}
                 />
               </label>
-              <button
+              <Button
                 disabled={busy}
                 onClick={async () => {
                   if (dirty) {
@@ -972,7 +974,7 @@ export function LocalizationEditor({
                 }}
               >
                 永久删除小节
-              </button>
+              </Button>
               <h3>完整谱行上下文</h3>
               {systemContext ? (
                 <Preview src={image} box={systemContext} />
@@ -984,7 +986,7 @@ export function LocalizationEditor({
               <h3>当前小节裁片</h3>
               <Preview src={image} box={measure.bbox} />
               <h3>事件（稳定ID）</h3>
-              <button
+              <Button
                 onClick={() =>
                   edit((g) => {
                     g.measures
@@ -998,23 +1000,23 @@ export function LocalizationEditor({
                 }
               >
                 按横坐标排序事件
-              </button>
+              </Button>
               <div className="box-list">
                 {measure.events.map((e) => (
-                  <button
+                  <Button
                     key={e.id}
                     className={eventId === e.id ? "active" : ""}
                     onClick={() => selectEvent(measure, e)}
                   >
                     {e.id.slice(0, 12)} · {e.centerX ?? "未知"} · {e.status}
-                  </button>
+                  </Button>
                 ))}
               </div>
               {event && (
                 <>
                   <label>
                     事件横坐标
-                    <input
+                    <Input
                       aria-label="事件横坐标"
                       type="number"
                       step="any"
@@ -1033,7 +1035,7 @@ export function LocalizationEditor({
                   </label>
                   <label>
                     事件声部
-                    <input
+                    <Input
                       value={event.voice}
                       onChange={(e) =>
                         edit((g) => {
@@ -1068,11 +1070,11 @@ export function LocalizationEditor({
                       })
                     }
                   />
-                  <button
+                  <Button
                     onClick={() => void reject(event.status === "rejected")}
                   >
                     {event.status === "rejected" ? "撤销拒绝" : "拒绝误检"}
-                  </button>
+                  </Button>
                   <h3>当前事件裁片</h3>
                   <Preview src={image} box={event.bbox ?? event.contextBBox} />
                   <p className="small muted">
@@ -1091,7 +1093,7 @@ export function LocalizationEditor({
         原图坐标，视图缩放不改标签 · SHA绑定来源
       </footer>
       {showSource && (
-        <div className="modal-backdrop">
+        <Dialog>
           <section className="modal">
             <h2>只读来源附件</h2>
             <p>保留原始内容、证据与AI状态，不能视为人工确认。</p>
@@ -1104,9 +1106,9 @@ export function LocalizationEditor({
             >
               {JSON.stringify(record.original, null, 2)}
             </pre>
-            <button onClick={() => setShowSource(false)}>关闭</button>
+            <Button onClick={() => setShowSource(false)}>关闭</Button>
           </section>
-        </div>
+        </Dialog>
       )}
     </>
   );
@@ -1123,7 +1125,7 @@ function BBoxFields({
   return (
     <label>
       {label}
-      <input
+      <Input
         aria-label={label}
         key={JSON.stringify(value)}
         defaultValue={value?.join(",") || ""}

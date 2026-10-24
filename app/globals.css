@@ -21,94 +21,6 @@
 body {
   margin: 0;
 }
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
-}
-button,
-input,
-select,
-textarea {
-  border: 1px solid #dce2eb;
-  border-radius: 6px;
-  background: #fff;
-  padding: 8px 12px;
-}
-button {
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background 0.15s,
-    border-color 0.15s,
-    color 0.15s;
-  min-height: 34px;
-  font-weight: 500;
-}
-button:hover {
-  background: #f5f8ff;
-  border-color: #a6bced;
-  color: #2858c4;
-}
-button:disabled {
-  opacity: 0.42;
-  cursor: not-allowed;
-}
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline: 3px solid #3567df40;
-  outline-offset: 2px;
-}
-button.primary,
-button.active {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
-}
-button.primary:hover,
-button.active:hover {
-  background: #2959cb;
-  color: white;
-}
-input,
-select,
-textarea {
-  min-height: 34px;
-}
-input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  min-height: 0;
-  accent-color: var(--accent);
-  vertical-align: middle;
-}
-input[type="file"] {
-  max-width: 100%;
-  font-size: 12px;
-  padding: 6px;
-}
-input[type="file"]::file-selector-button {
-  border: 0;
-  background: #eef3fc;
-  color: #3567df;
-  padding: 5px 8px;
-  margin-right: 8px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-input[type="range"] {
-  padding: 0;
-}
-textarea {
-  min-height: 90px;
-  width: 100%;
-  resize: vertical;
-}
 a {
   color: var(--accent);
 }
@@ -440,12 +352,12 @@ svg {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.filter-bar input {
+.filter-bar > .ant-input {
   flex: 1;
   min-width: 180px;
   max-width: 360px;
 }
-.filter-bar select {
+.filter-bar > .ant-select {
   min-width: 110px;
   max-width: 190px;
 }
@@ -456,96 +368,19 @@ svg {
   border-radius: 8px;
   margin-top: 14px;
 }
-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 13px;
-}
-th,
-td {
-  padding: 16px;
-  border-bottom: 1px solid #edf0f5;
-  font-weight: normal;
-  line-height: 1.5;
-}
-th {
-  color: #748298;
-  background: #f9fafc;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-tbody tr:last-child td {
-  border-bottom: 0;
-}
-td {
-  color: #56647a;
-}
-td:nth-child(2) {
-  font-weight: 500;
-  color: #2d3e57;
-}
-td:last-child {
-  white-space: nowrap;
-}
-td button {
-  border: 0;
-  background: transparent;
-  color: #3567df;
-  padding: 4px 6px;
-  font-size: 12px;
-  min-height: 28px;
-}
-td button:hover {
-  background: #edf3ff;
-}
-td button:last-child {
-  color: #8792a3;
-}
 .clickable {
   cursor: pointer;
 }
 .clickable:hover {
   background: #f7faff;
 }
-.pagination {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-  margin: 18px 0;
-  font-size: 12px;
-}
-.pagination span {
-  margin-right: auto;
-  color: #8b95a5;
-}
-.pagination button {
-  font-size: 12px;
-}
-.pagination select {
-  min-width: 70px;
-}
+.pagination { margin: 18px 0; justify-content: flex-end; }
 .panel {
   padding: 20px;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 8px;
   margin: 16px 0;
-}
-details summary {
-  cursor: pointer;
-  font-weight: 500;
-}
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: #17263e66;
-  backdrop-filter: blur(2px);
-  display: grid;
-  place-items: center;
 }
 .modal {
   background: #fff;
@@ -567,15 +402,15 @@ details summary {
   padding-top: 20px;
   border-top: 1px solid var(--line);
 }
-label {
+label:not(.ant-checkbox-wrapper) {
   display: block;
   color: #637086;
   font-size: 12px;
   margin: 14px 0;
 }
-label > input,
-label > select,
-label > textarea {
+label > .ant-input,
+label > .ant-select,
+label > .ant-input-number {
   display: block;
   width: 100%;
   margin-top: 7px;
@@ -1269,3 +1104,24 @@ label > textarea {
 .editor-body.single-page-editor > .crop-results { grid-column: 1 / -1; }
 
 .review-chip.ai-reviewed { color: #5b21b6; background: #f3e8ff; border-color: #d8b4fe; }
+
+/* Ant Design owns control appearance; application CSS only positions workspaces. */
+.ant-app { min-height: 100vh; color: inherit; }
+.filter-bar .ant-select { min-width: 150px; }
+.filter-bar .ant-input { width: 260px; }
+.properties .ant-select, .properties .ant-input-number, .modal .ant-select { width: 100%; }
+.ant-modal .modal { padding: 0; border: 0; box-shadow: none; width: auto; max-height: none; background: transparent; }
+.ant-modal .modal h2 { margin-top: 0; }
+.ant-modal .modal label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.omr-dialog .ant-modal-content { max-height: calc(100vh - 80px); overflow: auto; }
+.ant-btn.card-open { display: block; height: auto; }
+.ant-btn.card-open > span { display: block; }
+.ant-table-wrapper .ant-btn { margin-inline-end: 6px; }
+.ant-select { min-width: 100px; }
+.ant-slider { min-width: 130px; }
+
+.ant-card.card { padding: 0; }
+.platform-nav .ant-menu { background: transparent; border-inline-end: 0 !important; }
+.ant-notification { z-index: 2200; }
+
+.tools label:has(.ant-upload) { display: flex; align-items: center; gap: 6px; border: 0; padding: 0; background: transparent; }

@@ -1,4 +1,5 @@
 "use client";
+import { Dialog, Button } from "./ui/antd";
 import { ErrorToast } from "./ui/toast";
 import {
   createContext,
@@ -122,21 +123,21 @@ export function NavigationProvider({
     >
       {children}
       {open && (
-        <div className="modal-backdrop">
+        <Dialog>
           <section role="dialog" aria-label="未保存修改" className="modal">
             <h2>有未保存修改</h2>
             <p>内容仅在当前页面。请保存到服务端，或明确放弃。</p>
             <ErrorToast>{error}</ErrorToast>
             <div className="actions">
-              <button
+              <Button
                 onClick={() => {
                   pending.current = null;
                   setOpen(false);
                 }}
               >
                 留在本页
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => {
                   state.current = null;
                   setOpen(false);
@@ -145,8 +146,8 @@ export function NavigationProvider({
                 }}
               >
                 放弃修改并继续
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={async () => {
                   try {
                     await state.current?.save();
@@ -160,10 +161,10 @@ export function NavigationProvider({
                 }}
               >
                 保存后继续
-              </button>
+              </Button>
             </div>
           </section>
-        </div>
+        </Dialog>
       )}
     </Context.Provider>
   );

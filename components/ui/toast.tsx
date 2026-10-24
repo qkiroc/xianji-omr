@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { upsertToast } from "../../shared/toast-state";
-import { createPortal } from "react-dom";
+import { App } from "antd";
 function messageText(node: ReactNode): string {
   return Children.toArray(node)
     .map((child) =>
@@ -48,15 +48,15 @@ export function ErrorToast({ children }: { children: ReactNode }) {
   return null;
 }
 export function ToastHost() {
-  const [notices, setNotices] = useState<Notice[]>([]),
-    [mounted, setMounted] = useState(false);
+  const { notification } = App.useApp();
+  const shown = useRef(new Map<string, string>());
+  const [notices, setNotices] = useState<Notice[]>([]);
   const dismissed = useRef(new Set<string>());
   const dismiss = (n: Notice) => {
     dismissed.current.add(n.owner + n.text);
     setNotices((old) => old.filter((x) => x.owner !== n.owner));
   };
   useEffect(() => {
-    setMounted(true);
     const update = (e: Event) => {
       const n = (e as CustomEvent<Omit<Notice, "expires">>).detail;
       if (!n.text) {
@@ -94,22 +94,23 @@ export function ToastHost() {
     );
     return () => clearTimeout(timer);
   }, [notices]);
-  return mounted
-    ? createPortal(
-        <div className="toast-stack" aria-label="消息提示">
-          {notices.map((n) => (
-            <div className="toast-error" role="alert" key={n.owner}>
-              <span className="toast-mark" aria-hidden="true">
-                !
-              </span>
-              <div className="toast-content">{n.content}</div>
-              <button aria-label="关闭提示" onClick={() => dismiss(n)}>
-                ×
-              </button>
-            </div>
-          ))}
-        </div>,
-        document.body,
-      )
-    : null;
+  useEffect(() => {
+    for (const owner of shown.current.keys())
+      if (!notices.some((n) => n.owner === owner)) {
+        notification.destroy(owner);
+        shown.current.delete(owner);
+      }
+    for (const n of notices) {
+      if (shown.current.get(n.owner) === n.text) continue;
+      shown.current.set(n.owner, n.text);
+      notification.error({
+        key: n.owner,
+        title: "操作提示",
+        description: n.content,
+        duration: 0,
+        onClose: () => dismiss(n),
+      });
+    }
+  }, [notices, notification]);
+  return null;
 }

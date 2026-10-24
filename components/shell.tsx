@@ -1,4 +1,6 @@
 "use client";
+import { Form, Input, Button } from "./ui/antd";
+import { Menu } from "antd";
 import { ErrorToast } from "./ui/toast";
 import { DeletionJobs } from "./deletion-jobs";
 import { Icon } from "./ui/icon";
@@ -21,7 +23,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   if (account === null && !cli)
     return (
       <main className="login">
-        <form
+        <Form
           onSubmit={async (e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
@@ -44,11 +46,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <p>数据标注工作台</p>
           <label>
             用户名
-            <input name="username" autoComplete="username" required />
+            <Input name="username" autoComplete="username" required />
           </label>
           <label>
             密码
-            <input
+            <Input
               name="password"
               type="password"
               autoComplete="current-password"
@@ -56,8 +58,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
             />
           </label>
           <ErrorToast>{error}</ErrorToast>
-          <button className="primary">登录</button>
-        </form>
+          <Button className="primary">登录</Button>
+        </Form>
       </main>
     );
   return (
@@ -81,38 +83,39 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </span>
               {account}
             </span>
-            <button onClick={() => go("/cli/grants")}>CLI授权</button>
-            <button
+            <Button onClick={() => go("/cli/grants")}>CLI授权</Button>
+            <Button
               onClick={async () => {
                 await api("/logout", { method: "POST" });
                 setAccount(null);
               }}
             >
               退出
-            </button>
+            </Button>
           </header>
-          <nav className="platform-nav">
+          <nav className="platform-nav" aria-label="任务导航">
             <p>工作空间</p>
-            <button
-              aria-current={
-                !path.startsWith("/localization") ? "page" : undefined
+            <Menu
+              mode="inline"
+              selectedKeys={[
+                path.startsWith("/localization") ? "localization" : "layout",
+              ]}
+              items={[
+                {
+                  key: "layout",
+                  icon: <Icon name="crop" />,
+                  label: "切图标注",
+                },
+                {
+                  key: "localization",
+                  icon: <Icon name="locate" />,
+                  label: "小节与事件定位",
+                },
+              ]}
+              onClick={({ key }) =>
+                go(key === "layout" ? "/datasets" : "/localization/datasets")
               }
-              className={!path.startsWith("/localization") ? "active" : ""}
-              onClick={() => go("/datasets")}
-            >
-              <Icon name="crop" />
-              <span>切图标注</span>
-            </button>
-            <button
-              aria-current={
-                path.startsWith("/localization") ? "page" : undefined
-              }
-              className={path.startsWith("/localization") ? "active" : ""}
-              onClick={() => go("/localization/datasets")}
-            >
-              <Icon name="locate" />
-              <span>小节与事件定位</span>
-            </button>
+            />
           </nav>
         </>
       )}

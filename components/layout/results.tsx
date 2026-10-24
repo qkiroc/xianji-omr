@@ -1,4 +1,5 @@
 "use client";
+import { Select, Input, Button } from "../ui/antd";
 import { useSearchParams } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import type { Box, Category, LayoutDocument } from "../../shared/client";
@@ -121,7 +122,7 @@ export function LayoutCrops({
           </p>
         </div>
         <div className="actions">
-          <select
+          <Select
             aria-label="裁片类别"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
@@ -132,8 +133,8 @@ export function LayoutCrops({
                 {c.name}
               </option>
             ))}
-          </select>
-          <input
+          </Select>
+          <Input
             aria-label="预览大小"
             type="range"
             min={120}
@@ -166,7 +167,7 @@ export function LayoutCrops({
                   {b.width}×{b.height}px
                 </span>
               </div>
-              <button
+              <Button
                 className="crop-preview"
                 aria-label={"调整选区 " + b.id}
                 title="点击返回原图调整"
@@ -174,7 +175,7 @@ export function LayoutCrops({
                 onClick={() => onAdjust(b.id)}
               >
                 <CropCanvas image={image} box={b} />
-              </button>
+              </Button>
               {(b.metadata?.rawText ||
                 Object.keys(b.metadata?.value || {}).length > 0) && (
                 <p className="small muted">

@@ -1,4 +1,5 @@
 "use client";
+import { Button, Dialog } from "./ui/antd";
 import { useEffect, useState } from "react";
 import { api, json } from "../shared/client";
 import { ErrorToast } from "./ui/toast";
@@ -20,12 +21,12 @@ export function DeletionJobs() {
     <>
       <ErrorToast>{error}</ErrorToast>
       {!!jobs.length && (
-        <button className="deletion-jobs-button" onClick={() => setOpen(true)}>
+        <Button className="deletion-jobs-button" onClick={() => setOpen(true)}>
           永久清理待完成 · {jobs.length}
-        </button>
+        </Button>
       )}
       {open && (
-        <div className="modal-backdrop">
+        <Dialog>
           <section className="modal">
             <h2>永久删除清理任务</h2>
             <p>
@@ -36,7 +37,7 @@ export function DeletionJobs() {
                 <p>
                   {j.id} · {j.status === "failed" ? "待重试" : "正在清理"}
                 </p>
-                <button
+                <Button
                   disabled={busy}
                   onClick={async () => {
                     setBusy(true);
@@ -52,13 +53,13 @@ export function DeletionJobs() {
                   }}
                 >
                   重试清理
-                </button>
+                </Button>
               </div>
             ))}
             {!jobs.length && <p>清理已完成，请刷新列表。</p>}
-            <button onClick={() => setOpen(false)}>关闭</button>
+            <Button onClick={() => setOpen(false)}>关闭</Button>
           </section>
-        </div>
+        </Dialog>
       )}
     </>
   );

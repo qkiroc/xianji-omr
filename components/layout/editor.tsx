@@ -1,4 +1,7 @@
 "use client";
+import { Tooltip } from "antd";
+import { confirmAction } from "../../shared/dialog";
+import { Details, Summary, Button, Input, Select, Textarea } from "../ui/antd";
 import { ErrorToast } from "../ui/toast";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
@@ -69,12 +72,20 @@ export function LayoutEditor({
   const nextPage = async () => {
     if (!pageId) return;
     try {
-      const result = await api<{nextUnconfirmed: {id: string; songId: string} | null}>(
-        `/v2/datasets/${datasetId}/pages/${pageId}/neighbors`);
-      if (!result.nextUnconfirmed) { setError("当前数据集没有其他未确认的谱页"); return; }
+      const result = await api<{
+        nextUnconfirmed: { id: string; songId: string } | null;
+      }>(`/v2/datasets/${datasetId}/pages/${pageId}/neighbors`);
+      if (!result.nextUnconfirmed) {
+        setError("当前数据集没有其他未确认的谱页");
+        return;
+      }
       const target = result.nextUnconfirmed;
-      go(`${base}/songs/${target.songId}/pages/${target.id}?${useQueryString(new URLSearchParams(q), {box: undefined})}`);
-    } catch (e) { setError(e instanceof Error ? e.message : "跳转失败"); }
+      go(
+        `${base}/songs/${target.songId}/pages/${target.id}?${useQueryString(new URLSearchParams(q), { box: undefined })}`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "跳转失败");
+    }
   };
   const originalQuery = () =>
     useQueryString(new URLSearchParams(q), {
@@ -314,7 +325,7 @@ export function LayoutEditor({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "s") return;
-      if (document.querySelector(".modal-backdrop")) return;
+      if (document.querySelector(".ant-modal-root")) return;
       e.preventDefault();
       if (dirty && !busy && docRef.current) void save().catch(() => {});
     };
@@ -329,11 +340,18 @@ export function LayoutEditor({
         b.reviewStatus = "draft";
       }
     });
-  const confirmPage = async (unconfirm = false, reviewType: "human" | "ai" = "human") => {
+  const confirmPage = async (
+    unconfirm = false,
+    reviewType: "human" | "ai" = "human",
+  ) => {
     try {
       if (
         !unconfirm &&
-        !window.confirm(reviewType === "ai" ? "标记为 AI 已复核；此状态不等于人工确认，不纳入确认数据导出。" : "我已检查全部目标与漏标情况；负样本确实无目标。")
+        !(await confirmAction(
+          reviewType === "ai"
+            ? "标记为 AI 已复核；此状态不等于人工确认，不纳入确认数据导出。"
+            : "我已检查全部目标与漏标情况；负样本确实无目标。",
+        ))
       )
         return;
       if (dirty) await save();
@@ -343,7 +361,11 @@ export function LayoutEditor({
           current.image.id +
           "/" +
           (unconfirm ? "unconfirm" : "confirm"),
-        json({ version: current.image.version, acknowledged: true, reviewType }),
+        json({
+          version: current.image.version,
+          acknowledged: true,
+          reviewType,
+        }),
       );
       setDoc(result);
       docRef.current = result;
@@ -418,29 +440,33 @@ export function LayoutEditor({
     <>
       <div className="editor-toolbar">
         <div className="actions">
-          <button onClick={() => go(base + "?" + originalQuery())}>
+          <Button onClick={() => go(base + "?" + originalQuery())}>
             ‹ 返回谱页列表
-          </button>
-          <span className="editor-song-name" title={song?.name}>
-            {song?.name}
-          </span>
-          <button title="跳转至数据集内下一张未确认谱页，末尾循环查找" disabled={busy || !pageId} onClick={() => void nextPage()}>
+          </Button>
+          <Tooltip title={song?.name}>
+            <span className="editor-song-name">{song?.name}</span>
+          </Tooltip>
+          <Button
+            title="跳转至数据集内下一张未确认谱页，末尾循环查找"
+            disabled={busy || !pageId}
+            onClick={() => void nextPage()}
+          >
             下一页
-          </button>
+          </Button>
         </div>
         <div className="actions">
-          <button
+          <Button
             className={view === "original" ? "active" : ""}
             onClick={() => viewOnly("original")}
           >
             原图编辑
-          </button>
-          <button
+          </Button>
+          <Button
             className={view === "crops" ? "active" : ""}
             onClick={() => viewOnly("crops")}
           >
             裁片结果
-          </button>
+          </Button>
         </div>
         <div className="actions">
           <span
@@ -451,30 +477,35 @@ export function LayoutEditor({
               ? "未保存"
               : doc?.image.status === "confirmed"
                 ? "已确认"
-                : doc?.image.status === "ai_reviewed" ? "AI 已复核" : "草稿"}
+                : doc?.image.status === "ai_reviewed"
+                  ? "AI 已复核"
+                  : "草稿"}
           </span>
-          <button
+          <Button
             disabled={!doc || busy || !dirty}
             onClick={() => void save().catch(() => {})}
           >
             保存
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={!doc || busy}
             onClick={() => void confirmPage(true)}
           >
             取消确认
-          </button>
-          <button disabled={!doc || busy} onClick={() => void confirmPage(false, "ai")}>
+          </Button>
+          <Button
+            disabled={!doc || busy}
+            onClick={() => void confirmPage(false, "ai")}
+          >
             AI 已复核
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={!doc || busy}
             className="primary"
             onClick={() => void confirmPage()}
           >
             确认本页
-          </button>
+          </Button>
         </div>
       </div>
       {!!issues.length && (
@@ -483,7 +514,7 @@ export function LayoutEditor({
           <span>红色 ! 为问题区域，橙色虚线为所属谱行；修正后自动消失。</span>
           {issues.map((issue) => (
             <span key={issue.boxId} className="actions">
-              <button
+              <Button
                 title={issue.message}
                 onClick={() => {
                   if (view === "original")
@@ -496,11 +527,11 @@ export function LayoutEditor({
               >
                 定位区域{" "}
                 {(doc?.boxes.findIndex((b) => b.id === issue.boxId) ?? -1) + 1}
-              </button>
+              </Button>
               {doc?.boxes.some(
                 (b) => b.id === issue.parentId && b.classKey === "system",
               ) && (
-                <button
+                <Button
                   onClick={() => {
                     if (view === "original")
                       canvas.current?.focusRegion(issue.parentId);
@@ -511,7 +542,7 @@ export function LayoutEditor({
                   }}
                 >
                   调整所属谱行
-                </button>
+                </Button>
               )}
             </span>
           ))}
@@ -519,7 +550,7 @@ export function LayoutEditor({
       )}
       <div className="tools" hidden={view === "crops"}>
         {["select", "draw", "pan"].map((m, i) => (
-          <button
+          <Button
             key={m}
             className={mode === m ? "active" : ""}
             onClick={() => {
@@ -528,17 +559,17 @@ export function LayoutEditor({
             }}
           >
             {["选择 V", "画框 R", "平移 H"][i]}
-          </button>
+          </Button>
         ))}
         <label className="inline-check">
-          <input
+          <Input
             type="checkbox"
             checked={continuousDrawing}
             onChange={(e) => setContinuousDrawing(e.target.checked)}
           />
           连续画框
         </label>
-        <button
+        <Button
           disabled={!selected}
           onClick={() => {
             canvas.current?.setMode("select");
@@ -546,9 +577,9 @@ export function LayoutEditor({
           }}
         >
           显示全部框
-        </button>
-        <button onClick={() => canvas.current?.zoom(zoom / 1.25)}>−</button>
-        <select
+        </Button>
+        <Button onClick={() => canvas.current?.zoom(zoom / 1.25)}>−</Button>
+        <Select
           aria-label="视图缩放"
           value={zoom}
           onChange={(e) => canvas.current?.zoom(Number(e.target.value))}
@@ -560,30 +591,30 @@ export function LayoutEditor({
                 {Math.round(n * 100)}%
               </option>
             ))}
-        </select>
-        <button onClick={() => canvas.current?.zoom(zoom * 1.25)}>＋</button>
-        <button onClick={() => canvas.current?.fit()}>适应</button>
-        <button disabled={!history.undo} onClick={() => canvas.current?.undo()}>
+        </Select>
+        <Button onClick={() => canvas.current?.zoom(zoom * 1.25)}>＋</Button>
+        <Button onClick={() => canvas.current?.fit()}>适应</Button>
+        <Button disabled={!history.undo} onClick={() => canvas.current?.undo()}>
           撤销
-        </button>
-        <button disabled={!history.redo} onClick={() => canvas.current?.redo()}>
+        </Button>
+        <Button disabled={!history.redo} onClick={() => canvas.current?.redo()}>
           重做
-        </button>
-        <button disabled={!selected} onClick={() => canvas.current?.remove()}>
+        </Button>
+        <Button disabled={!selected} onClick={() => canvas.current?.remove()}>
           删除框
-        </button>
+        </Button>
         <div className="spacer" />
-        <button
+        <Button
           disabled={!doc}
           onClick={() => {
             if (doc) void downloadBackup(doc).catch((e) => setError(e.message));
           }}
         >
           导出本页JSON
-        </button>
+        </Button>
         <label style={{ margin: 0 }}>
           导入标注
-          <input
+          <Input
             type="file"
             aria-label="导入标注JSON"
             accept="application/json"
@@ -634,18 +665,17 @@ export function LayoutEditor({
       <ErrorToast>
         {error}{" "}
         {error && doc && (
-          <button
+          <Button
             onClick={() => {
               setError("");
               setImageRetry((n) => n + 1);
             }}
           >
             重试图片加载
-          </button>
+          </Button>
         )}
       </ErrorToast>
       <div className="editor-body single-page-editor" inert={busy}>
-
         <div
           className="stage-column"
           style={{ display: view === "crops" ? "none" : undefined }}
@@ -680,7 +710,7 @@ export function LayoutEditor({
               </p>
               <div className="category-grid">
                 {taxonomy.map((c) => (
-                  <button
+                  <Button
                     key={c.key}
                     style={{
                       color: c.color,
@@ -703,7 +733,7 @@ export function LayoutEditor({
                       style={{ background: c.color }}
                     />
                     {c.id} {c.name}
-                  </button>
+                  </Button>
                 ))}
               </div>
               <h3>区域列表 {doc?.boxes.length || 0}</h3>
@@ -712,7 +742,7 @@ export function LayoutEditor({
               )}
               <div className="box-list">
                 {doc?.boxes.map((b, i) => (
-                  <button
+                  <Button
                     key={b.id}
                     className={
                       (b.id === selected ? "active " : "") +
@@ -736,7 +766,7 @@ export function LayoutEditor({
                     {taxonomy.find((c) => c.key === b.classKey)?.name ||
                       "历史未归类"}{" "}
                     · {b.width}×{b.height}
-                  </button>
+                  </Button>
                 ))}
               </div>
               {!selectedBox && (
@@ -767,15 +797,15 @@ export function LayoutEditor({
                 {(doc?.boxes.findIndex((b) => b.id === selectedBox.id) ?? -1) +
                   1}
               </h3>
-              <button
+              <Button
                 className="properties-back"
                 onClick={() => canvas.current?.select(null)}
               >
                 ‹ 返回页面配置
-              </button>
+              </Button>
               <label>
                 类别
-                <select
+                <Select
                   style={{
                     color: taxonomy.find((c) => c.key === selectedBox.classKey)
                       ?.color,
@@ -806,13 +836,13 @@ export function LayoutEditor({
                       {c.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
-              <details className="advanced-properties">
-                <summary>高级属性 · 谱行关联与坐标</summary>
+              <Details className="advanced-properties">
+                <Summary>高级属性 · 谱行关联与坐标</Summary>
                 <label>
                   所属谱行
-                  <select
+                  <Select
                     aria-label="所属谱行"
                     value={selectedBox.parentSystemId || ""}
                     onChange={(e) =>
@@ -836,7 +866,7 @@ export function LayoutEditor({
                           · {b.x}, {b.y}
                         </option>
                       ))}
-                  </select>
+                  </Select>
                 </label>
                 <div className="coordinates">
                   {(["x", "y", "width", "height", "readingOrder"] as const).map(
@@ -851,7 +881,7 @@ export function LayoutEditor({
                             readingOrder: "阅读顺序",
                           }[key]
                         }
-                        <input
+                        <Input
                           aria-label={key}
                           type="number"
                           step={1}
@@ -884,7 +914,7 @@ export function LayoutEditor({
                     ),
                   )}
                 </div>
-              </details>
+              </Details>
               {meta.includes(selectedBox.classKey || "") && (
                 <MetadataFields
                   box={selectedBox}
@@ -901,7 +931,7 @@ export function LayoutEditor({
           {!selectedBox && (
             <label>
               页类型
-              <select
+              <Select
                 value={doc?.image.pageType || "music"}
                 onChange={(e) => {
                   if (doc) {
@@ -918,7 +948,7 @@ export function LayoutEditor({
               >
                 <option value="music">音乐页</option>
                 <option value="negative">负样本（确无目标）</option>
-              </select>
+              </Select>
             </label>
           )}
         </aside>
@@ -961,14 +991,14 @@ function MetadataFields({
       <h3>元信息（均可留空）</h3>
       <label>
         完整原文
-        <textarea
+        <Textarea
           value={m.rawText || ""}
           onChange={(e) => change({ ...m, rawText: e.target.value })}
         />
       </label>
       <label>
         作用范围
-        <select
+        <Select
           value={m.scope}
           onChange={(e) =>
             change({ ...m, scope: e.target.value as typeof m.scope })
@@ -979,7 +1009,7 @@ function MetadataFields({
           {["tempo", "key_signature", "time_signature"].includes(
             box.classKey || "",
           ) && <option value="local">局部变化</option>}
-        </select>
+        </Select>
       </label>
       {(fields[box.classKey || ""] || []).map((key) => (
         <label key={key}>
@@ -1000,7 +1030,7 @@ function MetadataFields({
             )[key]
           }
           {key === "dotted" ? (
-            <select
+            <Select
               value={values[key] === undefined ? "" : String(values[key])}
               onChange={(e) => {
                 const value = { ...values };
@@ -1012,9 +1042,9 @@ function MetadataFields({
               <option value="">未注明</option>
               <option value="true">有附点</option>
               <option value="false">无附点</option>
-            </select>
+            </Select>
           ) : (
-            <input
+            <Input
               value={values[key] === undefined ? "" : String(values[key])}
               type={
                 [
