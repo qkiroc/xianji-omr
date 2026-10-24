@@ -10,6 +10,8 @@ node tools/synthetic/configure-cloud.mjs
 
 该命令在需要时安装 GitHub CLI、打开 GitHub 登录，随后通过标准输入将本地素材密钥与已有平台授权保存为仓库的 Actions Secrets，并启动 `Synthetic corpus` 工作流。密钥和凭证不会出现在命令参数或输出里。GitHub 连接器没有写入 Secrets 的工具，因此这次配置需在本机终端完成。
 
+如果浏览器显示 `Authorize your device`，验证码就在启动登录的 PowerShell 窗口中，格式通常为 `XXXX-XXXX`。复制终端的 one-time code 到浏览器，保持终端打开直至登录完成；这里不需要申请 Personal Access Token。GitHub 配置与 OMR 配置在脚本中分别读取。
+
 [查看云端工作流](https://github.com/qkiroc/xianji-omr/actions/workflows/synthetic-corpus.yml)。进入运行状态后，本机无需保持开机。停止本机旧任务后再移交，避免两边同时写入同一批页面。
 
 云端在 Ubuntu 上安装 Node 22、固定版本的渲染依赖、Chromium 和中文字体。先恢复未完成的上传事务，然后按下列顺序执行：
