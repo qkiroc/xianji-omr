@@ -32,6 +32,7 @@ const run = (bin, args, cwd = root) =>
     p.on("error", no);
     p.on("exit", (c) => (c ? no(Error("BUILD_STEP_FAILED " + bin)) : yes()));
   });
+const compatibility = JSON.parse(await readFile(join(root, "server/compatibility.json"), "utf8"));
 const commit = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8",
@@ -126,7 +127,7 @@ try {
         arch: "x64",
         nodeMajor: 22,
         nodeBuilt: process.version,
-        schema: 5,
+        schema: compatibility.schemaMax,
         files,
       },
       null,

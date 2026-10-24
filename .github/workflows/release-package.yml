@@ -1,0 +1,39 @@
+name: Build ECS release package
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "README.md"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.18.0"
+          cache: npm
+      - run: npm ci
+      - name: Build Linux release outside the repository
+        run: node deploy/build-artifact.mjs "$RUNNER_TEMP/xianji-omr-release"
+      - name: Verify archive and extracted release
+        run: |
+          package=$(find "$RUNNER_TEMP/xianji-omr-release" -name '*.tar.gz' -print -quit)
+          checksum=$(cut -d' ' -f1 "$package.sha256")
+          node deploy/artifact.mjs archive "$package" "$checksum"
+          mkdir "$RUNNER_TEMP/xianji-omr-release-check"
+          tar -xzf "$package" -C "$RUNNER_TEMP/xianji-omr-release-check"
+          node deploy/artifact.mjs release "$RUNNER_TEMP/xianji-omr-release-check" "$GITHUB_SHA"
+          echo "Verified commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA256: $checksum" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xianji-omr-linux-x64-node22
+          path: ${{ runner.temp }}/xianji-omr-release/*
+          retention-days: 14
+          compression-level: 0
