@@ -494,9 +494,9 @@ export function LayoutEditor({
             {dirty ? "未保存" : doc?.image.status === "confirmed" ? "已确认" :
               doc?.image.status === "ai_reviewed" ? "AI 已复核" : doc ? "已保存" : ""}
           </span>
-          <AntButton disabled={!doc || busy || !dirty} loading={operation.current === "save"}
+          <AntButton aria-label="保存" disabled={!doc || busy || !dirty} loading={operation.current === "save"}
             onClick={() => void save().catch(() => {})}>保存</AntButton>
-          <AntButton type="primary" disabled={!doc || busy || imageState !== "ready"}
+          <AntButton type="primary" aria-label="确认并下一页" disabled={!doc || busy || imageState !== "ready"}
             loading={operation.current === "confirm"} onClick={() => void confirmPage()}>
             确认并下一页
           </AntButton>

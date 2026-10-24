@@ -146,11 +146,6 @@ try {
   await page.locator(".save-status.unsaved").waitFor({ state: "hidden" });
   assert.equal((await api("/pages/" + ids[1])).boxes.length, 2);
   assert.equal(f.objects.size, 5);
-  console.log("After save controls", await page.locator(".editor-save-actions").evaluate(root => ({
-    html: root.outerHTML,
-    inertAncestors: [...document.querySelectorAll("[inert]")].map(e => e.className),
-    hiddenAncestors: [...document.querySelectorAll('[aria-hidden="true"]')].map(e => e.className),
-  })));
   await page.getByRole("button", { name: "确认并下一页", exact: true }).click();
   await page.waitForURL("**/pages/" + ids[0] + "?**");
   assert.ok(page.url().includes("queue=ai_reviewed"));
