@@ -16,19 +16,26 @@ jobs:
           node-version: "22.18.0"
           cache: npm
       - run: npm ci
-      - name: Use matching PostgreSQL test tools
+      - name: Use PostgreSQL 18 backup tools
         run: |
-          echo "$PWD/node_modules/@embedded-postgres/linux-x64/native/bin" >> "$GITHUB_PATH"
-          echo "LD_LIBRARY_PATH=$PWD/node_modules/@embedded-postgres/linux-x64/native/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          if [ ! -x /usr/lib/postgresql/18/bin/pg_dump ]; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client-18
+          fi
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
       - run: pg_dump --version
       - run: npm run typecheck
       - run: npm run build
+        id: build
       - run: npm test
       - name: Install browser for UI acceptance
+        id: browser_install
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           npm install --no-save --package-lock=false playwright@1.55.0
           npx playwright install --with-deps chromium
       - name: Verify review workflow in Chromium
+        if: ${{ !cancelled() && steps.browser_install.outcome == 'success' }}
         run: node test/review-browser.mjs
       - name: Save UI screenshots
         if: always()
