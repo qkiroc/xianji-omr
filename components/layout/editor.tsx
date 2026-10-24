@@ -216,7 +216,7 @@ export function LayoutEditor({
           if (!q.get("queue")) {
             const params = new URLSearchParams(window.location.search);
             params.set("queue", reviewQueue(params, value.image));
-            window.history.replaceState({ ...window.history.state, omrReplace: true }, "",
+            window.history.replaceState({ omrIndex: window.history.state?.omrIndex, omrReplace: true }, "",
               window.location.pathname + "?" + params);
           }
           setSelected(null);
@@ -241,7 +241,7 @@ export function LayoutEditor({
         if ((params.get("box") || null) !== id) {
           id ? params.set("box", id) : params.delete("box");
           window.history.replaceState(
-            { ...window.history.state, omrReplace: true },
+            { omrIndex: window.history.state?.omrIndex, omrReplace: true },
             "",
             window.location.pathname + "?" + params,
           );
@@ -438,9 +438,11 @@ export function LayoutEditor({
     } catch (e) { setError(e instanceof Error ? e.message : "确认失败"); }
     finally { operation.current = null; setBusy(false); }
   };
+  // Next copies its router metadata for external history updates. Passing its
+  // internal __NA/_N markers would skip notifying useSearchParams.
   const viewOnly = (v: string) =>
     window.history.replaceState(
-      { ...window.history.state, omrReplace: true },
+      { omrIndex: window.history.state?.omrIndex, omrReplace: true },
       "",
       `${base}/songs/${songId}/pages/${pageId}?${useQueryString(new URLSearchParams(q), { view: v })}`,
     );
