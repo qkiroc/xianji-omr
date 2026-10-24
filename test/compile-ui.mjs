@@ -16,6 +16,7 @@ export async function compile(file) {
   );
   compiled.set(file, target.href);
   let code = ts.transpileModule(await readFile(file, "utf8"), {
+    fileName: file,
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.ESNext,

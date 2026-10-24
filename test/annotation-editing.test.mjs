@@ -15,7 +15,7 @@ test("保存删除区域/小节/事件只更新JSON，保留原图、定位来�
   }, "PUT"));
   const frozen = { images: [structuredClone(page)] };
   const snapshot = (await f.pool.query(
-    "INSERT INTO omr_snapshots(id,dataset_id,frozen,status) VALUES(gen_random_uuid(),$1,$2,'pending') RETURNING id",
+    "INSERT INTO omr_snapshots(id,dataset_id,frozen,status) VALUES(gen_random_uuid(),$1,$2,'ready') RETURNING id",
     [s.dataset.id, frozen],
   )).rows[0];
   page = await s.api("/pages/" + page.image.id, json({

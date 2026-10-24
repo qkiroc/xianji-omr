@@ -17,5 +17,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
       - run: npm run build
+      - run: npm test
+      - name: Install browser for UI acceptance
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Verify review workflow in Chromium
+        run: node test/review-browser.mjs
+      - name: Save UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-ui-screenshots
+          path: .test-data/review-browser
+          if-no-files-found: ignore
