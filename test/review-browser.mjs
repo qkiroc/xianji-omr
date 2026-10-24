@@ -1,6 +1,6 @@
 // Isolated PostgreSQL + in-memory OSS only. Run after the production build.
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import next from "next";
 import sharp from "sharp";
 const { chromium } = await import(process.env.OMR_PLAYWRIGHT_MODULE || "playwright");
@@ -10,6 +10,7 @@ const nextApp = next({ dev: false, dir: process.cwd(), hostname: "127.0.0.1", po
 await nextApp.prepare();
 const f = await fixture({ port: 55512, webPort: 4179, previewLogin: true, webHandler: nextApp.getRequestHandler() });
 let browser, page;
+const errors = [];
 const output = ".test-data/review-browser";
 await mkdir(output, { recursive: true });
 try {
@@ -50,7 +51,6 @@ try {
   await api("/datasets", json({ name: "VeryLongDatasetName".repeat(10), description: "LongUnbrokenDescription".repeat(60) }));
   browser = await chromium.launch({ headless: true, ...(process.env.OMR_BROWSER_CHANNEL ? { channel: process.env.OMR_BROWSER_CHANNEL } : {}) });
   page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
-  const errors = [];
   page.on("pageerror", e => errors.push(e.message));
   await page.goto(f.url + "/__test-login");
   const assertSelectArrows = async () => {
@@ -146,6 +146,11 @@ try {
   await page.locator(".save-status.unsaved").waitFor({ state: "hidden" });
   assert.equal((await api("/pages/" + ids[1])).boxes.length, 2);
   assert.equal(f.objects.size, 5);
+  console.log("After save controls", await page.locator(".editor-save-actions").evaluate(root => ({
+    html: root.outerHTML,
+    inertAncestors: [...document.querySelectorAll("[inert]")].map(e => e.className),
+    hiddenAncestors: [...document.querySelectorAll('[aria-hidden="true"]')].map(e => e.className),
+  })));
   await page.getByRole("button", { name: "确认并下一页", exact: true }).click();
   await page.waitForURL("**/pages/" + ids[0] + "?**");
   assert.ok(page.url().includes("queue=ai_reviewed"));
@@ -181,7 +186,10 @@ try {
     console.error("Review browser state", await page.evaluate(() => ({
       url: location.href, activeTag: document.activeElement?.tagName,
       events: window.__reviewTabEvents,
+      body: document.body.innerText.slice(0, 3000),
     })).catch(() => ({})));
+    console.error("Browser errors", errors);
+    await writeFile(output + "/failure.html", await page.content()).catch(() => {});
     await page.screenshot({ path: output + "/failure.png", fullPage: true }).catch(() => {});
   }
   process.exitCode = 1;
