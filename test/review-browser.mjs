@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import next from "next";
 import sharp from "sharp";
-import { chromium } from "playwright";
+const { chromium } = await import(process.env.OMR_PLAYWRIGHT_MODULE || "playwright");
 import { fixture } from "./fixture.mjs";
 import { cookieFor, grantFor, request, json } from "./cli-helpers.mjs";
 const nextApp = next({ dev: false, dir: process.cwd(), hostname: "127.0.0.1", port: 4179 });
@@ -48,7 +48,7 @@ try {
     });
   }
   await api("/datasets", json({ name: "VeryLongDatasetName".repeat(10), description: "LongUnbrokenDescription".repeat(60) }));
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, ...(process.env.OMR_BROWSER_CHANNEL ? { channel: process.env.OMR_BROWSER_CHANNEL } : {}) });
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
