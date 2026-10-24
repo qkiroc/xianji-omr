@@ -9,3 +9,7 @@ config.json
 .next/
 *.tsbuildinfo
 .artifacts/
+
+# Original score materials are stored only in encrypted cloud assets.
+downloads/
+

@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
+import {join,resolve,sep} from 'node:path';
+import {assetPath,sealFiles,openFiles,restoreFiles,writeParts,readParts} from '../tools/synthetic/cloud-crypto.mjs';
+const key='ab'.repeat(32),files=[{path:'downloads/audition-library-20261024-201804.json',bytes:Buffer.from('CUSTOM_PRIVATE_SCORE_LYRICS')},{path:'.artifacts/synthetic-renderer/audition-195-batch/plan.json',bytes:Buffer.from('{"datasetId":"test"}')}];
+async function temporary(t){const parent=resolve('.test-data');await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'cloud-crypto-'));assert.ok(root.startsWith(parent+sep));t.after(()=>rm(root,{recursive:true,force:true}));return root;}
+test('source materials are authenticated, encrypted, and recover exactly',()=>{const encrypted=sealFiles(files,key);assert.ok(!encrypted.toString().includes('CUSTOM_PRIVATE_SCORE_LYRICS'));const recovered=openFiles(encrypted,key);assert.deepEqual(recovered,files);assert.notDeepEqual(sealFiles(files,key),encrypted);});
+test('wrong keys and modified ciphertext are rejected',()=>{const encrypted=sealFiles(files,key);assert.throws(()=>openFiles(encrypted,'cd'.repeat(32)));const parsed=JSON.parse(encrypted),body=Buffer.from(parsed.ciphertext,'base64');body[0]^=1;parsed.ciphertext=body.toString('base64');assert.throws(()=>openFiles(Buffer.from(JSON.stringify(parsed)),key));});
+test('paths cannot escape the synthetic inputs or include credentials and dependencies',()=>{for(const p of ['../secret','.git/config','C:\\secret','/etc/passwd','.artifacts/cli-config/credential.json','.artifacts/synthetic-renderer/../cli-config/key','.artifacts/synthetic-renderer/node_modules/payload.js'])assert.throws(()=>assetPath(p));assert.throws(()=>sealFiles([{path:files[0].path,bytes:Buffer.from('omr_cli_'+'a'.repeat(64))}],key),/Credential/);});
+test('duplicate paths cannot overwrite earlier entries',()=>{assert.throws(()=>sealFiles([files[0],files[0]],key),/Duplicate/);});
+test('parts are verified before restoration and old unused parts are removed',async t=>{const root=await temporary(t),encrypted=sealFiles(files,key);await writeParts(root,encrypted);assert.deepEqual(await readParts(root),encrypted);const index=JSON.parse(await readFile(join(root,'index.json'),'utf8'));await writeFile(join(root,index.parts[0].name),'tampered');await assert.rejects(readParts(root),/checksum/);await writeParts(root,encrypted);assert.deepEqual(await readParts(root),encrypted);});
+test('restored assets stay within the chosen workspace',async t=>{const root=await temporary(t);await restoreFiles(root,openFiles(sealFiles(files,key),key));assert.equal(await readFile(join(root,files[0].path),'utf8'),'CUSTOM_PRIVATE_SCORE_LYRICS');await assert.rejects(restoreFiles(root,[{path:'../../outside',bytes:Buffer.from('bad')}]),/Unsafe/);});
+

@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "encryption": "AES-256-GCM",
+  "sha256": "a3f39e2bbf2f26180217d2adb39211fe2ee1ac1cb5e328392f33570a2c8a7a17",
+  "bytes": 5559468,
+  "parts": [
+    {
+      "name": "materials-001.enc",
+      "bytes": 192000,
+      "sha256": "036c9765b60acdd24bfe0f4e12f2463a7c3ce3c1a750f1c4b8d6e30449611482"
+    },
+    {
+      "name": "materials-002.enc",
+      "bytes": 192000,
+      "sha256": "0372ac48e1a5f745f32d0ef69d5a7de6d8b26859a7228bccefeabb55e415de19"
+    },
+    {
+      "name": "materials-003.enc",
+      "bytes": 192000,
+      "sha256": "c0488e7aeb27f6d9efefa7653bc90dfe3eb120d34a20e130fd38bd612fb00b02"
+    },
+    {
+      "name": "materials-004.enc",
+      "bytes": 192000,
+      "sha256": "15562f9906aa66f272a8a923bd14fbfc97283ce2795702796a5c91a985f17159"
+    },
+    {
+      "name": "materials-005.enc",
+      "bytes": 192000,
+      "sha256": "b48d98bda5e8e6275661236ade1db3470ee6ecd500747ec71c2b57f8d96b4388"
+    },
+    {
+      "name": "materials-006.enc",
+      "bytes": 192000,
+      "sha256": "2bb63172135305b20d68f1c2d09a5eadf4667e9d5e19a22f5f7c77cd62f472d3"
+    },
+    {
+      "name": "materials-007.enc",
+      "bytes": 192000,
+      "sha256": "d3a8e07e38d7e0e4a084ed39f486f3ef8ead0bfaf9643f844ae1a055484a0112"
+    },
+    {
+      "name": "materials-008.enc",
+      "bytes": 192000,
+      "sha256": "72be0c70d7f5ea800519ea534db310176410651df4c1a3593cc123c24dbcd1c3"
+    },
+    {
+      "name": "materials-009.enc",
+      "bytes": 192000,
+      "sha256": "a4b015eb3cb38f7b52301edc7ac5ebcc2d68f928f62f685bb7c8d61e01a9a6aa"
+    },
+    {
+      "name": "materials-010.enc",
+      "bytes": 192000,
+      "sha256": "be37ef9945cef86c0dce1a721fbeebd3aa8d5707885ff7a684f326fcf627cf0b"
+    },
+    {
+      "name": "materials-011.enc",
+      "bytes": 192000,
+      "sha256": "aaf8bf367c7fd36ec08fd8773450d76516b61e1aa8cfaec763d90595c3d4243a"
+    },
+    {
+      "name": "materials-012.enc",
+      "bytes": 192000,
+      "sha256": "869d6ac432f6ac0ac1dc7a35d7d3e3e36f816d4ee7a95a65d370ef14d2ddd374"
+    },
+    {
+      "name": "materials-013.enc",
+      "bytes": 192000,
+      "sha256": "406c57d957e330fe4a3f0b3492585e2a84968badcbf2a5c3a81d424bd3fd130b"
+    },
+    {
+      "name": "materials-014.enc",
+      "bytes": 192000,
+      "sha256": "bd290be6cdb5b9fa9ffa0aafad1ad56cfeb3becd55365ca8ebc9319478ca5690"
+    },
+    {
+      "name": "materials-015.enc",
+      "bytes": 192000,
+      "sha256": "739b288a91aa9f4d2a24efcca5d1789dfe759d055e6f5d522aca544710a3cefa"
+    },
+    {
+      "name": "materials-016.enc",
+      "bytes": 192000,
+      "sha256": "c734d7933922c7b340ca0c922a0d60e96fa9c8cac378a8440d1262938026a107"
+    },
+    {
+      "name": "materials-017.enc",
+      "bytes": 192000,
+      "sha256": "5b414493a65a5714883023387c11c0ea600022b8dc386fdd7e97ac317c4fd3d5"
+    },
+    {
+      "name": "materials-018.enc",
+      "bytes": 192000,
+      "sha256": "f0757266bb6afda68f0dea224da5afff17e1bf423b004b4db904419b1aec3085"
+    },
+    {
+      "name": "materials-019.enc",
+      "bytes": 192000,
+      "sha256": "069788c08901810ae7d9c81741594f5ce5a33d0a1da80a8bc5f4947be529e459"
+    },
+    {
+      "name": "materials-020.enc",
+      "bytes": 192000,
+      "sha256": "c9a1f05398fce820df59997c15f07f10e3ce08e959c5743b89ee919e0330cf40"
+    },
+    {
+      "name": "materials-021.enc",
+      "bytes": 192000,
+      "sha256": "ff8890515c35e2a2faed9a51823aa83f29018897f33781c0250457ef7c14279a"
+    },
+    {
+      "name": "materials-022.enc",
+      "bytes": 192000,
+      "sha256": "92e874c4b5a913b34f8e89d21b70292755281274e713411171d9e8dada63b9a2"
+    },
+    {
+      "name": "materials-023.enc",
+      "bytes": 192000,
+      "sha256": "a71f5f3a19bec22bd6b4bbbd3207b5c3d38b869a70e474fe78c64536d6a5a55b"
+    },
+    {
+      "name": "materials-024.enc",
+      "bytes": 192000,
+      "sha256": "1f7493c689fc25f62dcab1d47454a1f31028abee8ccf00543d7931e3944f9b74"
+    },
+    {
+      "name": "materials-025.enc",
+      "bytes": 192000,
+      "sha256": "c8a1e97ff818ba7321bf120f67cb9ec10016fb8e5ee2d65d083a3615245c984f"
+    },
+    {
+      "name": "materials-026.enc",
+      "bytes": 192000,
+      "sha256": "be84ceeac7a873f622d6233ce6feb1e717e391a5fa7788518dad17f98f901f69"
+    },
+    {
+      "name": "materials-027.enc",
+      "bytes": 192000,
+      "sha256": "99b5d23a52eebe180f89022d13aa7173a5fcced998a48018c4da1a21b93f8597"
+    },
+    {
+      "name": "materials-028.enc",
+      "bytes": 192000,
+      "sha256": "381bf0e998d1dba170d045db06dbb9c171febcb817a29ca040114fc8525f5828"
+    },
+    {
+      "name": "materials-029.enc",
+      "bytes": 183468,
+      "sha256": "6b35a1ed5be60995c31989729c4241bc25c2f3c5d9618a3b71cd317a58bc8a9e"
+    }
+  ]
+}

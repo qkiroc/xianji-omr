@@ -1,0 +1,130 @@
+name: Synthetic corpus
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Maximum editions per cloud batch
+        type: string
+        default: '585'
+      resume_run_id:
+        description: Previous run containing an encrypted checkpoint
+        type: string
+        required: false
+      auto_continue:
+        description: Continue automatically until the corpus is complete
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - 'tools/synthetic/**'
+      - 'test/synthetic-*.test.mjs'
+      - '.github/workflows/synthetic-corpus.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synthetic-corpus-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Verify notation, encrypted assets and replacement safety
+        run: node --test test/synthetic-cloud.test.mjs test/synthetic-accompaniment.test.mjs test/synthetic-layout.test.mjs test/synthetic-replacement.test.mjs
+
+  produce:
+    if: github.event_name == 'workflow_dispatch'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: write
+    env:
+      OMR_ASSET_KEY: ${{ secrets.OMR_ASSET_KEY }}
+      OMR_CLI_TOKEN: ${{ secrets.OMR_CLI_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      LIMIT: ${{ inputs.limit }}
+      RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Validate private configuration
+        run: |
+          node --input-type=module -e 'if(!/^[a-f0-9]{64}$/i.test(process.env.OMR_ASSET_KEY||""))throw Error("Configure OMR_ASSET_KEY in repository Secrets");if(!/^omr_cli_[a-f0-9]{64}$/.test(process.env.OMR_CLI_TOKEN||""))throw Error("Configure OMR_CLI_TOKEN in repository Secrets");if(!/^[0-9]+$/.test(process.env.LIMIT)||Number(process.env.LIMIT)<1||Number(process.env.LIMIT)>585)throw Error("limit must be 1..585");'
+      - name: Restore source materials and prior checkpoint
+        id: restore
+        run: |
+          set -euo pipefail
+          prior="$RESUME_RUN_ID"
+          if [[ -z "$prior" && "$GITHUB_RUN_ATTEMPT" -gt 1 ]]; then prior="$GITHUB_RUN_ID"; fi
+          if [[ -z "$prior" ]]; then
+            prior=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq "[.artifacts[] | select(.name==\"synthetic-checkpoint\" and .expired==false and .workflow_run.id != ($GITHUB_RUN_ID|tonumber))] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty")
+          fi
+          if [[ -n "$prior" ]]; then
+            [[ "$prior" =~ ^[0-9]+$ ]]
+            gh run download "$prior" --repo "$GITHUB_REPOSITORY" --name synthetic-checkpoint --dir .artifacts/cloud-resume
+            node tools/synthetic/bootstrap-cloud.mjs --checkpoint .artifacts/cloud-resume
+          else
+            node tools/synthetic/bootstrap-cloud.mjs
+          fi
+      - name: Install pinned renderer dependencies
+        run: npm ci --prefix .artifacts/synthetic-renderer --ignore-scripts
+      - name: Install browser and Chinese fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk fonts-arphic-ukai fonts-arphic-uming fonts-liberation
+          node .artifacts/synthetic-renderer/node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Validate first rendered edition
+        run: node tools/synthetic/revise-audition.mjs --render --cloud --limit 1
+      - name: Repair common editions, repair existing editions, then continue import
+        id: generate
+        run: node tools/synthetic/revise-audition.mjs --run --cloud --time-budget 300 --limit "$LIMIT"
+      - name: Encrypt updated checkpoint
+        id: checkpoint
+        if: always() && steps.restore.outcome == 'success'
+        run: node tools/synthetic/pack-cloud.mjs --checkpoint --output .artifacts/cloud-checkpoint
+      - name: Preserve encrypted checkpoint
+        id: upload
+        if: always() && steps.checkpoint.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: synthetic-checkpoint
+          path: .artifacts/cloud-checkpoint/*
+          include-hidden-files: true
+          overwrite: true
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: error
+      - name: Summarize cloud progress
+        if: always() && steps.restore.outcome == 'success'
+        run: |
+          node --input-type=module <<'JS'
+          import {readFile,appendFile} from 'node:fs/promises';
+          const p=JSON.parse(await readFile('.artifacts/synthetic-renderer/audition-195-batch/accompaniment-revision-v3/progress.json','utf8'));
+          await appendFile(process.env.GITHUB_STEP_SUMMARY,`Status: ${p.status}\n\nCompleted editions: ${p.completed.length} / 585\n\nConfirmed pages: ${p.completed.reduce((n,v)=>n+v.pages,0)}\n`);
+          JS
+      - name: Continue on the next cloud runner if needed
+        if: success() && inputs.auto_continue && steps.upload.outcome == 'success'
+        run: |
+          state=$(node --input-type=module -e 'import{readFile}from"node:fs/promises";console.log(JSON.parse(await readFile(".artifacts/synthetic-renderer/audition-195-batch/accompaniment-revision-v3/progress.json","utf8")).status)')
+          if [[ "$state" == 'paused' ]]; then
+            gh workflow run synthetic-corpus.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" -f resume_run_id="$GITHUB_RUN_ID" -f limit="$LIMIT" -f auto_continue=true
+          fi
+
