@@ -4,12 +4,6 @@ import {
   Form,
   Input,
   Select,
-  Table,
-  TableHead,
-  TableRow,
-  TableHeading,
-  TableBody,
-  TableCell,
   Dialog,
   Textarea,
 } from "../ui/antd";
@@ -99,7 +93,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
   }, [datasetId, filters]);
   const update = (values: Record<string, string | number | undefined>) =>
     go(base + "?" + useQueryString(new URLSearchParams(filters), values));
-  const remove = async (items: PageRow[], _restore = false) => {
+  const remove = async (items: PageRow[]) => {
     if (removing || !items.length) return;
     setRemoving(true);
     try {

@@ -101,7 +101,7 @@ export function LayoutEditor({
     writePageTrail(window.sessionStorage, trailKey, items);
     setTrail(items);
   }, [trailKey, pageId]);
-  const advance = async (direction: "previous" | "next", afterConfirm = false) => {
+  const advance = async (direction: "previous" | "next", completedLabel?: string) => {
     const current = docRef.current;
     if (!current || current.image.id !== pageId) return;
     const items = readPageTrail(window.sessionStorage, trailKey);
@@ -114,8 +114,8 @@ export function LayoutEditor({
       target = direction === "previous" ? value.previousPage : value.nextPage;
     }
     if (!target) {
-      void message.info(afterConfirm
-        ? `本页已确认，当前「${reviewLabels[queue] || "复核"}」队列已处理完成`
+      void message.info(completedLabel
+        ? `${completedLabel}，当前「${reviewLabels[queue] || "复核"}」队列已处理完成`
         : direction === "previous" ? "已经是第一张谱页" : "当前队列没有其他谱页");
       return;
     }
@@ -429,9 +429,10 @@ export function LayoutEditor({
       else {
         void message.success(reviewType === "ai" ? "已标记为 AI 已复核" : "本页已确认");
         // Confirmation succeeded even if the following navigation fails.
-        try { await advance("next", true); }
+        const completedLabel = reviewType === "ai" ? "本页已标记为 AI 已复核" : "本页已确认";
+        try { await advance("next", completedLabel); }
         catch (e) {
-          setError("本页已确认，下一页加载失败：" + (e instanceof Error ? e.message : "请点击下一页重试"));
+          setError(completedLabel + "，下一页加载失败：" + (e instanceof Error ? e.message : "请点击下一页重试"));
         }
       }
     } catch (e) { setError(e instanceof Error ? e.message : "确认失败"); }

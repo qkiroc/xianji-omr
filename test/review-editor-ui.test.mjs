@@ -199,3 +199,25 @@ test("最后一页确认成功后留在本页，无报错弹窗或跳回自身",
   assert.equal(document.querySelector(".ant-modal"), null);
   assert.equal(m.find("下一页 ›").disabled, true);
 });
+
+test("未保存时翻页可取消，保存后继续才记录上一页", async t => {
+  const m = await mount(t);
+  await m.click("1 ·");
+  await m.click("删除框");
+  await m.click("下一页 ›");
+  assert.equal(m.routes.length, 0);
+  const dialogButton = text => [...document.querySelectorAll(".ant-modal button")]
+    .find(b => b.textContent.replace(/\s/g, "") === text);
+  await act(async () => dialogButton("留在本页")
+    .dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+  assert.equal(m.routes.length, 0);
+  assert.ok(m.host.querySelector(".save-status.unsaved"));
+  await m.click("下一页 ›");
+  await act(async () => dialogButton("保存后继续")
+    .dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+  assert.ok(m.routes.at(-1).includes("/pages/b?"));
+  assert.equal(m.pages.get("a").boxes.length, 1);
+  await act(async () => {});
+  await m.click("上一页");
+  assert.ok(m.routes.at(-1).includes("/pages/a?"));
+});

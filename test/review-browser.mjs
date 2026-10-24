@@ -48,9 +48,13 @@ try {
   await page.goto(f.url + "/datasets/" + ds.id + "?status=ai_reviewed");
   await page.getByText("共 2 张谱页", { exact: true }).first().waitFor();
   await page.screenshot({ path: output + "/01-list.png", fullPage: true });
-  const rows = page.locator(".ant-table-tbody tr");
+  const rows = page.locator(".ant-table-tbody tr.ant-table-row");
   assert.equal(await rows.count(), 2);
   assert.ok((await rows.nth(0).innerText()).includes("第 2 页"));
+  await rows.nth(0).locator("input[type=checkbox]").check();
+  await page.getByText("已选 1 张谱页", { exact: true }).waitFor();
+  assert.ok(!page.url().includes("/songs/"));
+  await page.getByRole("button", { name: "取消选择", exact: true }).click();
   await page.getByRole("button", { name: "标注 / 复核", exact: true }).first().click();
   await page.waitForURL("**/pages/" + ids[1] + "?**");
   await page.locator(".canvas-loading").waitFor({ state: "hidden" });
