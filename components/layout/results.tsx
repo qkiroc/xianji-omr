@@ -96,7 +96,7 @@ export function LayoutCrops({
     q.set("cropSize", String(size));
     if (q.toString() !== new URLSearchParams(window.location.search).toString())
       window.history.replaceState(
-        { omrIndex: window.history.state?.omrIndex, omrReplace: true },
+        { ...window.history.state, omrReplace: true },
         "",
         window.location.pathname + "?" + q,
       );

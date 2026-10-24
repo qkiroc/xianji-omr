@@ -445,6 +445,19 @@ export function LayoutEditor({
       `${base}/songs/${songId}/pages/${pageId}?${useQueryString(new URLSearchParams(q), { view: v })}`,
     );
   useEffect(() => {
+    const toggle = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey ||
+          event.isComposing || event.defaultPrevented || busy) return;
+      const target = event.target as Element | null;
+      if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), .ant-select, .ant-input-number, [role="dialog"]') ||
+          document.querySelector(".ant-modal-root, .ant-select-dropdown:not(.ant-select-dropdown-hidden)")) return;
+      event.preventDefault();
+      viewOnly(view === "original" ? "crops" : "original");
+    };
+    window.addEventListener("keydown", toggle);
+    return () => window.removeEventListener("keydown", toggle);
+  }, [view, busy, datasetId, songId, pageId, q]);
+  useEffect(() => {
     if (view === "original")
       requestAnimationFrame(() => {
         if (focusTarget.current && canvas.current) {
@@ -467,12 +480,11 @@ export function LayoutEditor({
             </span>
           </div>
         </div>
-        <div className="editor-page-navigation">
-          <AntButton disabled={busy || !doc || (!trail.length && !neighbors?.previousPage)}
-            onClick={() => void movePage("previous")}>‹ 上一页</AntButton>
-          <Tag className="queue-label">{reviewLabels[queue] || "复核"}队列</Tag>
-          <AntButton disabled={busy || !doc || (neighbors !== null && !neighbors.nextPage)}
-            onClick={() => void movePage("next")}>下一页 ›</AntButton>
+        <div className="editor-view-switch">
+          <Tooltip title="Tab 切换原图标注 / 裁片预览">
+        <Segmented aria-label="编辑视图" value={view} onChange={(v) => viewOnly(String(v))}
+          options={[{ label: "原图标注", value: "original" }, { label: "裁片预览", value: "crops" }]} />
+          </Tooltip>
         </div>
         <div className="editor-save-actions">
           <span className={"save-status " + (dirty ? "unsaved" : "saved")} role="status">
@@ -536,8 +548,13 @@ export function LayoutEditor({
         </ErrorToast>
       )}
       <div className="tools review-tools">
-        <Segmented aria-label="编辑视图" value={view} onChange={(v) => viewOnly(String(v))}
-          options={[{ label: "原图标注", value: "original" }, { label: "裁片预览", value: "crops" }]} />
+        <div className="editor-page-navigation">
+          <AntButton disabled={busy || !doc || (!trail.length && !neighbors?.previousPage)}
+            onClick={() => void movePage("previous")}>‹ 上一页</AntButton>
+          <Tag className="queue-label">{reviewLabels[queue] || "复核"}队列</Tag>
+          <AntButton disabled={busy || !doc || (neighbors !== null && !neighbors.nextPage)}
+            onClick={() => void movePage("next")}>下一页 ›</AntButton>
+        </div>
         <div className="canvas-tools" hidden={view === "crops"} inert={busy || imageState !== "ready"}>
         {["select", "draw", "pan"].map((m, i) => (
           <Button

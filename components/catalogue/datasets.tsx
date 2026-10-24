@@ -1,6 +1,6 @@
 "use client";
 import { Select, Button, Dialog, Form, Input, Textarea } from "../ui/antd";
-import { Card } from "antd";
+import { Button as AntButton, Card, Typography } from "antd";
 import { ErrorToast } from "../ui/toast";
 import { permanentDelete } from "../../shared/permanent-delete";
 import { Icon } from "../ui/icon";
@@ -80,65 +80,33 @@ export function DatasetList({
       </div>
       <div className="cards" aria-busy={loading}>
         {items.map((d) => (
-          <Card key={d.id} className="card">
-            <Button
-              className="card-open"
-              style={{
-                border: 0,
-                padding: 0,
-                textAlign: "left",
-                background: "none",
-              }}
-              disabled={deleted}
-              onClick={() => go(base + "/" + d.id)}
-            >
-              <div className="dataset-icon">
-                <Icon name="folder" />
-              </div>
-              <h2>{d.name}</h2>
-              <p className="muted">{d.description || "暂无描述"}</p>
-              <div className="stats">
-                <span>
-                  <strong>
-                    {"record_count" in d
-                      ? d.record_count
-                      : "page_count" in d
-                        ? d.page_count
-                        : 0}
-                  </strong>
-                  {localization ? "语料记录" : "图片"}
-                </span>
-                <span>
-                  <strong>{d.confirmed_count}</strong>已确认
-                </span>
-              </div>
-              <p className="small muted">
-                更新于
-                {new Date(
-                  "content_updated_at" in d
-                    ? String(d.content_updated_at)
-                    : d.updated_at,
-                ).toLocaleString()}
-              </p>
-            </Button>
-            <Button
-              className="card-delete"
-              onClick={async () => {
-                try {
-                  if (
-                    await permanentDelete(
-                      localization ? "locDataset" : "dataset",
-                      [d.id],
-                    )
-                  )
-                    await load();
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : "删除失败");
-                }
-              }}
-            >
-              删除
-            </Button>
+          <Card
+            key={d.id}
+            className="card dataset-card"
+            hoverable
+            title={<Typography.Text className="dataset-card-title" ellipsis={{ tooltip: d.name }}>{d.name}</Typography.Text>}
+            extra={<AntButton type="text" danger size="small" onClick={async () => {
+              try {
+                if (await permanentDelete(localization ? "locDataset" : "dataset", [d.id])) await load();
+              } catch (e) { setError(e instanceof Error ? e.message : "删除失败"); }
+            }}>删除</AntButton>}
+          >
+            <Typography.Paragraph className="dataset-card-description"
+              ellipsis={{ rows: 2, tooltip: d.description || "暂无描述" }}>
+              {d.description || "暂无描述"}
+            </Typography.Paragraph>
+            <div className="stats">
+              <span><strong>{
+                "record_count" in d ? d.record_count : "page_count" in d ? d.page_count : 0
+              }</strong>{localization ? "语料记录" : "图片"}</span>
+              <span><strong>{d.confirmed_count}</strong>已确认</span>
+            </div>
+            <span className="dataset-card-updated">更新于 {
+              new Date("content_updated_at" in d ? String(d.content_updated_at) : d.updated_at).toLocaleString()
+            }</span>
+            <AntButton block type="primary" ghost disabled={deleted} onClick={() => go(base + "/" + d.id)}>
+              打开数据集
+            </AntButton>
           </Card>
         ))}
       </div>

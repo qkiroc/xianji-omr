@@ -402,16 +402,15 @@ svg {
   padding-top: 20px;
   border-top: 1px solid var(--line);
 }
-label:not(.ant-checkbox-wrapper) {
+label:not([class*="ant-"]) {
   display: block;
   color: #637086;
   font-size: 12px;
   margin: 14px 0;
 }
-label > .ant-input,
-label > .ant-select,
-label > .ant-input-number {
-  display: block;
+label:not([class*="ant-"]) > .ant-input,
+label:not([class*="ant-"]) > .ant-input-number {
+  display: inline-flex;
   width: 100%;
   margin-top: 7px;
 }
@@ -1112,7 +1111,7 @@ label > .ant-input-number {
 .properties .ant-select, .properties .ant-input-number, .modal .ant-select { width: 100%; }
 .ant-modal .modal { padding: 0; border: 0; box-shadow: none; width: auto; max-height: none; background: transparent; }
 .ant-modal .modal h2 { margin-top: 0; }
-.ant-modal .modal label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.ant-modal .modal label:not([class*="ant-"]) { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .omr-dialog .ant-modal-content { max-height: calc(100vh - 80px); overflow: auto; }
 .ant-btn.card-open { display: block; height: auto; }
 .ant-btn.card-open > span { display: block; }
@@ -1204,4 +1203,59 @@ label > .ant-input-number {
   .single-page-editor .properties { max-height: 32dvh; border-left: 0; border-top: 1px solid var(--line); padding: 16px; }
   .single-page-editor .crop-results { flex: 1; padding: 18px; }
   .single-page-editor .caption span:last-child { display: none; }
+}
+
+/* Keep Ant Design controls out of native form-label layout rules. */
+label:not([class*="ant-"]) > .ant-select { display: inline-flex; width: 100%; margin-top: 7px; }
+.ant-select { flex-wrap: nowrap; vertical-align: middle; }
+.ant-select .ant-select-content, .ant-select .ant-select-selector { min-width: 0; flex: 1 1 auto; }
+.ant-select .ant-select-selection-item { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ant-select .ant-select-suffix, .ant-select .ant-select-arrow { flex-shrink: 0; white-space: nowrap; }
+.review-toolbar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.editor-view-switch { display: flex; justify-content: center; min-width: 0; }
+.editor-view-switch .ant-segmented { white-space: nowrap; }
+.review-tools .editor-page-navigation { flex-shrink: 0; gap: 8px; margin-right: auto; }
+.review-tools .editor-page-navigation .queue-label { margin: 0; }
+.review-tools .canvas-tools { justify-content: flex-end; }
+.cards { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.ant-card.card { min-width: 0; overflow: hidden; }
+.ant-card.card .ant-card-head, .ant-card.card .ant-card-body { min-width: 0; }
+.dataset-card .ant-card-head { min-height: 56px; padding: 0 20px; }
+.dataset-card .ant-card-head-wrapper { gap: 12px; min-width: 0; }
+.dataset-card .ant-card-head-title { min-width: 0; overflow: hidden; padding: 16px 0; }
+.dataset-card-title { display: block; font-size: 16px; font-weight: 600; }
+.dataset-card-description { min-height: 42px; margin-bottom: 12px !important; color: var(--muted); overflow-wrap: anywhere; }
+.dataset-card .stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin: 16px 0; }
+.dataset-card .stats > span { min-width: 0; }
+.dataset-card .stats strong { overflow-wrap: anywhere; }
+.dataset-card-updated { display: block; font-size: 11px; color: var(--muted); margin-bottom: 16px; overflow-wrap: anywhere; }
+.crop-card-head > b { min-width: 0; overflow-wrap: anywhere; }
+.crop-card-head > .small { flex-shrink: 0; white-space: nowrap; }
+.crop-card p { white-space: normal; overflow-wrap: anywhere; }
+.review-overview { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.review-progress { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 12px; }
+.review-progress .ant-progress { width: 180px; margin: 0; }
+.review-counts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.ant-btn.review-count { height: auto; min-width: 0; padding: 14px 18px; justify-content: flex-start; text-align: left; border-color: var(--line); box-shadow: none; }
+.review-count-content { display: flex; flex-direction: column; gap: 8px; min-width: 0; width: 100%; }
+.review-count-label { display: block; font-size: 12px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.review-count-value { font-size: 25px; line-height: 1.1; font-variant-numeric: tabular-nums; color: #334155; }
+.ant-btn.review-count.active { border-color: #8aaff2; background: #eff5ff; }
+.review-count.active .review-count-label, .review-count.active .review-count-value { color: var(--accent); }
+.page-list-panel .ant-table-tbody > tr > td { padding-block: 8px; }
+.page-list-panel .ant-table-thead > tr > th { padding-block: 10px; }
+.page-song-name { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+@media (max-width: 980px) {
+  .review-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .editor-view-switch { grid-column: 1 / -1; grid-row: 2; }
+  .review-tools .editor-page-navigation { width: 100%; justify-content: center; margin: 0; }
+  .review-tools .canvas-tools { justify-content: flex-start; }
+  .review-counts { gap: 8px; }
+  .ant-btn.review-count { padding: 12px; }
+}
+@media (max-width: 700px) {
+  .review-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-counts > :first-child { grid-column: 1 / -1; }
+  .review-progress { flex-wrap: wrap; gap: 8px; }
+  .review-progress .ant-progress { width: 130px; }
 }

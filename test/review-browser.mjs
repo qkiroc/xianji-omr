@@ -40,15 +40,57 @@ try {
     if (n <= 2) p = await api("/pages/" + p.image.id + "/confirm", json({ version: p.image.version, acknowledged: true, reviewType: "ai" }));
     ids.push(p.image.id);
   }
+  for (const split of ["val", "test"]) {
+    const extraSong = await api("/datasets/" + ds.id + "/songs", json({ name: split + " score", songGroupKey: "browser-" + split, split }));
+    await api("/songs/" + extraSong.id + "/pages", {
+      method: "POST", headers: { "Content-Type": "image/png", "X-File-Name": "score-" + split + ".png" },
+      body: await sharp({ create: { width: 800, height: 1100, channels: 3, background: "white" } }).png().toBuffer(),
+    });
+  }
+  await api("/datasets", json({ name: "VeryLongDatasetName".repeat(10), description: "LongUnbrokenDescription".repeat(60) }));
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
   await page.goto(f.url + "/__test-login");
+  const assertSelectArrows = async () => {
+    const broken = await page.locator(".ant-select:visible").evaluateAll(selects => selects.flatMap(select => {
+      const arrow = select.querySelector(".ant-select-suffix, .ant-select-arrow");
+      if (!arrow) return ["Missing Select suffix"];
+      const box = select.getBoundingClientRect(), icon = arrow.getBoundingClientRect();
+      return icon.bottom > box.bottom + 1 || icon.top < box.top - 1 ||
+        Math.abs((icon.top + icon.bottom - box.top - box.bottom) / 2) > 5
+        ? [JSON.stringify({ control: select.getAttribute("aria-label"), height: box.height, arrowTop: icon.top - box.top, arrowHeight: icon.height })] : [];
+    }));
+    assert.deepEqual(broken, [], "Select suffix must stay inside the control on the same line");
+  };
+  await page.goto(f.url + "/datasets");
+  await page.getByRole("button", { name: "打开数据集", exact: true }).first().waitFor();
+  for (const width of [1440, 768, 390]) {
+    await page.setViewportSize({ width, height: 960 });
+    await assertSelectArrows();
+    const overflow = await page.locator(".dataset-card").evaluateAll(cards =>
+      cards.filter(card => card.scrollWidth > card.clientWidth + 1).length);
+    assert.equal(overflow, 0, "Dataset card text must not overflow");
+    await page.screenshot({ path: output + "/cards-" + width + ".png", fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 960 });
   await page.goto(f.url + "/datasets/" + ds.id + "?status=ai_reviewed");
   await page.getByText("共 2 张谱页", { exact: true }).first().waitFor();
   await page.screenshot({ path: output + "/01-list.png", fullPage: true });
+  await page.getByRole("button", { name: "全部谱页 5", exact: true }).waitFor();
+  await page.getByRole("button", { name: "草稿 3", exact: true }).click();
+  await page.waitForURL("**status=draft**");
+  await page.getByText("共 3 张谱页", { exact: true }).first().waitFor();
+  const draftText = await page.locator(".ant-table-tbody").innerText();
+  for (const label of ["训练集", "验证集", "测试集"]) assert.ok(draftText.includes(label));
+  await page.getByRole("button", { name: "AI 已复核 2", exact: true }).click();
+  await page.waitForURL("**status=ai_reviewed**");
+  await page.getByText("共 2 张谱页", { exact: true }).first().waitFor();
+  await assertSelectArrows();
   const rows = page.locator(".ant-table-tbody tr.ant-table-row");
+  assert.ok(!(await rows.first().innerText()).includes(".png"), "Song column has no filename subtitle");
+  assert.ok((await rows.first().boundingBox()).height <= 48, "Compact table rows");
   assert.equal(await rows.count(), 2);
   assert.ok((await rows.nth(0).innerText()).includes("第 2 页"));
   await rows.nth(0).locator("input[type=checkbox]").check();
@@ -59,8 +101,22 @@ try {
   await page.waitForURL("**/pages/" + ids[1] + "?**");
   await page.locator(".canvas-loading").waitFor({ state: "hidden" });
   await page.screenshot({ path: output + "/02-editor.png", fullPage: true });
+  const viewBounds = await page.locator(".editor-view-switch").boundingBox();
+  assert.ok(Math.abs(viewBounds.x + viewBounds.width / 2 - 720) <= 2, "View switch is centred in the header");
+  await page.locator(".stage").focus();
+  await page.keyboard.press("Tab");
+  await page.locator(".crop-results").waitFor();
+  await assertSelectArrows();
+  await page.screenshot({ path: output + "/03-crops.png", fullPage: true });
+  await page.keyboard.press("Tab");
+  await page.locator(".stage").waitFor({ state: "visible" });
+  assert.equal(await page.locator(".ant-modal").count(), 0, "Switching views does not prompt to leave");
   const selectTitle = () => page.locator(".box-list button").filter({ hasText: "标题" }).click();
   await selectTitle();
+  await assertSelectArrows();
+  await page.locator(".properties textarea").first().focus();
+  await page.keyboard.press("Tab");
+  assert.ok(!new URL(page.url()).searchParams.get("view") || new URL(page.url()).searchParams.get("view") === "original", "Tab in inputs retains normal focus navigation");
   await page.getByRole("button", { name: "删除框", exact: true }).click();
   assert.equal(await page.locator(".ant-modal").count(), 0);
   await page.locator(".save-status.unsaved").waitFor();
@@ -79,7 +135,7 @@ try {
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await page.locator(".save-status.unsaved").waitFor({ state: "hidden" });
   assert.equal((await api("/pages/" + ids[1])).boxes.length, 2);
-  assert.equal(f.objects.size, 3);
+  assert.equal(f.objects.size, 5);
   await page.getByRole("button", { name: "确认并下一页", exact: true }).click();
   await page.waitForURL("**/pages/" + ids[0] + "?**");
   assert.ok(page.url().includes("queue=ai_reviewed"));
@@ -105,10 +161,11 @@ try {
     }));
     assert.ok(bounds.width <= bounds.viewport + 1, JSON.stringify(bounds));
     assert.ok(bounds.canvas >= 180, JSON.stringify(bounds));
+    await assertSelectArrows();
     await page.screenshot({ path: output + "/editor-" + viewport.width + ".png", fullPage: true });
   }
   assert.deepEqual(errors, []);
-  console.log("PASS: Chromium list page numbers, reversible deletion, failed-save retention, AI queue confirmation, previous-page return, 1024/390px layout.");
+  console.log("PASS: Chromium list page numbers, reversible deletion, failed-save retention, AI queue confirmation, previous-page return, review counts, split labels, compact rows, centred Tab view switching, card overflow, Select suffix alignment, 1024/390px layout.");
 } finally {
   await browser?.close();
   await f.close();

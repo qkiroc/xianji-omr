@@ -7,7 +7,7 @@ import {
   Dialog,
   Textarea,
 } from "../ui/antd";
-import { Button as AntButton, Dropdown, Input as AntInput, Table as AntTable, Tag } from "antd";
+import { Button as AntButton, Dropdown, Input as AntInput, Table as AntTable, Tag, Progress } from "antd";
 import { pageEditorTarget, reviewQueue } from "../../shared/editor-navigation";
 import { ErrorToast } from "../ui/toast";
 import { permanentDelete } from "../../shared/permanent-delete";
@@ -26,7 +26,26 @@ import { useNavigation } from "../navigation";
 interface PageRow extends PageImage {
   songName: string;
   boxCount: number;
+  split: "train" | "val" | "test";
 }
+interface ReviewCounts {
+  total: number;
+  draft: number;
+  ai_reviewed: number;
+  confirmed: number;
+  legacy: number;
+}
+interface PageCatalogue extends PageResult<PageRow> {
+  reviewCounts: ReviewCounts;
+}
+const reviewStates = [
+  { key: "", label: "全部谱页", count: "total" },
+  { key: "draft", label: "草稿", count: "draft" },
+  { key: "ai_reviewed", label: "AI 已复核", count: "ai_reviewed" },
+  { key: "confirmed", label: "已确认", count: "confirmed" },
+  { key: "legacy", label: "历史未归类", count: "legacy" },
+] as const;
+const splitLabels = { train: "训练集", val: "验证集", test: "测试集" };
 interface Snapshot {
   id: string;
   status: string;
@@ -37,11 +56,12 @@ export function SongList({ datasetId }: { datasetId: string }) {
   const requestId = useRef(0);
   const q = useSearchParams(),
     { go } = useNavigation(),
-    [data, setData] = useState<PageResult<PageRow>>({
+    [data, setData] = useState<PageCatalogue>({
       items: [],
       total: 0,
       page: 1,
       pageSize: 50,
+      reviewCounts: { total: 0, draft: 0, ai_reviewed: 0, confirmed: 0, legacy: 0 },
     }),
     [dataset, setDataset] = useState<Dataset | null>(null),
     [songs, setSongs] = useState<Song[]>([]),
@@ -65,7 +85,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
       setLoading(true);
       setError("");
       const [result, ds, ss] = await Promise.all([
-        api<PageResult<PageRow>>(
+        api<PageCatalogue>(
           "/v2/datasets/" + datasetId + "/pages?" + filters,
         ),
         api<Dataset[]>("/v2/datasets"),
@@ -147,6 +167,29 @@ export function SongList({ datasetId }: { datasetId: string }) {
           <Button className="primary" onClick={() => setUpload(true)}>上传原图</Button>
         </div>
       </div>
+      <section className="review-overview" aria-label="复核进度" aria-busy={loading}>
+        <div className="review-progress">
+          <span>复核进度 · 数量随搜索和集合筛选更新</span>
+          <div className="actions">
+            <span>人工确认 {data.reviewCounts.confirmed} / {data.reviewCounts.total}</span>
+            <Progress percent={data.reviewCounts.total ? Math.round(data.reviewCounts.confirmed / data.reviewCounts.total * 100) : 0}
+              size="small" showInfo={false} aria-label="人工确认进度" />
+          </div>
+        </div>
+        <div className="review-counts">
+          {reviewStates.map((state) => (
+            <AntButton key={state.count} type="default" aria-pressed={(q.get("status") || "") === state.key}
+              aria-label={state.label + " " + data.reviewCounts[state.count]}
+              className={"review-count " + ((q.get("status") || "") === state.key ? "active" : "")}
+              onClick={() => update({ status: state.key, page: 1 })}>
+              <span className="review-count-content">
+                <span className="review-count-label">{state.label}</span>
+                <strong className="review-count-value">{loading ? "—" : data.reviewCounts[state.count]}</strong>
+              </span>
+            </AntButton>
+          ))}
+        </div>
+      </section>
       <div className="page-list-panel">
         <div className="page-list-filters">
           <AntInput.Search
@@ -196,8 +239,8 @@ export function SongList({ datasetId }: { datasetId: string }) {
         <AntTable<PageRow>
           rowKey="id"
           loading={loading}
-          size="middle"
-          scroll={{ x: 760 }}
+          size="small"
+          scroll={{ x: 820 }}
           dataSource={data.items}
           rowSelection={{
             selectedRowKeys: selected,
@@ -217,12 +260,13 @@ export function SongList({ datasetId }: { datasetId: string }) {
             {
               title: "归属歌曲",
               key: "songName",
-              render: (_, row) => <div className="page-song-cell">
-                <span>{row.songName}</span>
-                <span className="muted small">{row.name}</span>
-              </div>,
+              ellipsis: true,
+              render: (_, row) => <span className="page-song-name">{row.songName}</span>,
             },
-            { title: "区域", dataIndex: "boxCount", width: 80 },
+            { title: "集合类型", dataIndex: "split", width: 100,
+              render: (split: PageRow["split"]) => <Tag color={split === "train" ? "blue" : split === "val" ? "cyan" : "orange"}>{splitLabels[split]}</Tag>,
+            },
+            { title: "区域", dataIndex: "boxCount", width: 72 },
             {
               title: "复核状态",
               key: "status",

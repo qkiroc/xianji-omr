@@ -35,6 +35,7 @@ export function pageFilter(datasetId: any, q: any = {}) {
         ? `i.annotation_format=$${params.length}`
         : `i.status=$${params.length}`,
     );
+    if (q.status !== "legacy") where.push("i.annotation_format<>'legacy'");
   }
   if (q.search) {
     params.push(q.search);
@@ -95,7 +96,21 @@ export function registerCatalogue(router: any, { pool }: any) {
                 [...f.params, pageSize, (page - 1) * pageSize],
               )
             ).rows;
-          return { items: rows.map(item), total, page, pageSize };
+          // Counts cover the current search/split/song scope, independent of
+          // the selected status and list pagination. Legacy is exclusive.
+          const scope = pageFilter(req.params.datasetId, { ...req.query, status: undefined });
+          const reviewCounts = (
+            await c.query(
+              `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE i.annotation_format<>'legacy' AND i.status='draft')::int AS draft,
+                count(*) FILTER (WHERE i.annotation_format<>'legacy' AND i.status='ai_reviewed')::int AS ai_reviewed,
+                count(*) FILTER (WHERE i.annotation_format<>'legacy' AND i.status='confirmed')::int AS confirmed,
+                count(*) FILTER (WHERE i.annotation_format='legacy')::int AS legacy
+               FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE ${scope.where}`,
+              scope.params,
+            )
+          ).rows[0];
+          return { items: rows.map(item), total, page, pageSize, reviewCounts };
         },
         { isolation: "REPEATABLE READ" },
       ),
