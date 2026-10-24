@@ -1,8 +1,6 @@
 name: Verify application
 on:
   pull_request:
-  push:
-    branches: [codex/review-workflow-ui]
 permissions:
   contents: read
 jobs:
