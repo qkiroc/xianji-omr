@@ -80,12 +80,12 @@ try {
   await page.screenshot({ path: output + "/01-list.png", fullPage: true });
   await page.getByRole("button", { name: "全部谱页 5", exact: true }).waitFor();
   await page.getByRole("button", { name: "草稿 3", exact: true }).click();
-  await page.waitForURL("**status=draft**");
+  await page.waitForURL(url => url.searchParams.get("status") === "draft");
   await page.getByText("共 3 张谱页", { exact: true }).first().waitFor();
   const draftText = await page.locator(".ant-table-tbody").innerText();
   for (const label of ["训练集", "验证集", "测试集"]) assert.ok(draftText.includes(label));
   await page.getByRole("button", { name: "AI 已复核 2", exact: true }).click();
-  await page.waitForURL("**status=ai_reviewed**");
+  await page.waitForURL(url => url.searchParams.get("status") === "ai_reviewed");
   await page.getByText("共 2 张谱页", { exact: true }).first().waitFor();
   await assertSelectArrows();
   const rows = page.locator(".ant-table-tbody tr.ant-table-row");
@@ -166,6 +166,9 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log("PASS: Chromium list page numbers, reversible deletion, failed-save retention, AI queue confirmation, previous-page return, review counts, split labels, compact rows, centred Tab view switching, card overflow, Select suffix alignment, 1024/390px layout.");
+} catch (error) {
+  process.exitCode = 1;
+  throw error;
 } finally {
   await browser?.close();
   await f.close();

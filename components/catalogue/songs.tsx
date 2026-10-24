@@ -7,7 +7,7 @@ import {
   Dialog,
   Textarea,
 } from "../ui/antd";
-import { Button as AntButton, Dropdown, Input as AntInput, Table as AntTable, Tag, Progress } from "antd";
+import { Button as AntButton, Dropdown, Input as AntInput, Table as AntTable, Tag, Progress, Tooltip } from "antd";
 import { pageEditorTarget, reviewQueue } from "../../shared/editor-navigation";
 import { ErrorToast } from "../ui/toast";
 import { permanentDelete } from "../../shared/permanent-delete";
@@ -260,8 +260,8 @@ export function SongList({ datasetId }: { datasetId: string }) {
             {
               title: "归属歌曲",
               key: "songName",
-              ellipsis: true,
-              render: (_, row) => <span className="page-song-name">{row.songName}</span>,
+              ellipsis: { showTitle: false },
+              render: (_, row) => <Tooltip title={row.songName}><span className="page-song-name">{row.songName}</span></Tooltip>,
             },
             { title: "集合类型", dataIndex: "split", width: 100,
               render: (split: PageRow["split"]) => <Tag color={split === "train" ? "blue" : split === "val" ? "cyan" : "orange"}>{splitLabels[split]}</Tag>,
