@@ -16,6 +16,11 @@ jobs:
           node-version: "22.18.0"
           cache: npm
       - run: npm ci
+      - name: Use matching PostgreSQL test tools
+        run: |
+          echo "$PWD/node_modules/@embedded-postgres/linux-x64/native/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$PWD/node_modules/@embedded-postgres/linux-x64/native/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+      - run: pg_dump --version
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
@@ -32,3 +37,4 @@ jobs:
           name: review-ui-screenshots
           path: .test-data/review-browser
           if-no-files-found: ignore
+          include-hidden-files: true
