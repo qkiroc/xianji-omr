@@ -61,6 +61,7 @@ export interface PageImage {
   annotationFormat: string;
   coordinate: unknown;
   source: string;
+  updatedAt?: string;
 }
 export interface LayoutDocument {
   image: PageImage;

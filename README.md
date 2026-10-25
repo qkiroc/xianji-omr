@@ -1,6 +1,6 @@
 # 切图标注 · xianji-omr
 
-当前 schema7 / CLI0.4.0。编辑器中的删除属于标注 JSON 编辑，保存前可撤销、重做；删除数据集、谱页或导出快照时按影响范围清理数据库与相关文件，详见[数据清理说明](docs/permanent-deletion.md)。
+当前 schema8 / CLI0.4.0。编辑器中的删除属于标注 JSON 编辑，保存前可撤销、重做；删除数据集、谱页或导出快照时按影响范围清理数据库与相关文件，详见[数据清理说明](docs/permanent-deletion.md)。
 
 谱页新增独立[AI复核状态](docs/ai-review.md)，不等于人工确认、不计入确认训练数据。
 

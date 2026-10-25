@@ -32,9 +32,9 @@ test("schema4带7页人工确认/回收站/会话/grant/快照升6，幂等及�
     dump = await backup(f.config, dir);
   await withLock(f.pool, (c) => migrate(c));
   await withLock(f.pool, (c) => migrate(c));
-  assert.equal(await checkHistory(f.pool), 7);
+  assert.equal(await checkHistory(f.pool), 8);
   assert.deepEqual(
-    (await f.pool.query("SELECT * FROM omr_images ORDER BY id")).rows,
+    (await f.pool.query("SELECT * FROM omr_images ORDER BY id")).rows.map(({ human_reviews, ...page }) => page),
     before,
   );
   assert.deepEqual(

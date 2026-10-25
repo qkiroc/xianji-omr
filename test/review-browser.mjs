@@ -49,6 +49,11 @@ try {
     });
   }
   await api("/datasets", json({ name: "VeryLongDatasetName".repeat(10), description: "LongUnbrokenDescription".repeat(60) }));
+  const { reviewWindow } = await import("../shared/review-trend.ts");
+  const { start: yesterday, end: today } = reviewWindow(2);
+  await f.pool.query("UPDATE omr_images SET human_reviews=jsonb_build_object($2::text,jsonb_build_object('estimated',true),$3::text,jsonb_build_object('estimated',false)) WHERE id=$1",
+    [ids[2], yesterday, today]);
+  await f.pool.query("UPDATE omr_images SET updated_at='2026-01-01T16:01:00Z' WHERE id=$1", [ids[1]]);
   browser = await chromium.launch({ headless: true, ...(process.env.OMR_BROWSER_CHANNEL ? { channel: process.env.OMR_BROWSER_CHANNEL } : {}) });
   page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   page.on("pageerror", e => errors.push(e.message));
@@ -77,6 +82,33 @@ try {
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.goto(f.url + "/datasets/" + ds.id + "?status=ai_reviewed");
   await page.getByText("共 2 张谱页", { exact: true }).first().waitFor();
+  await page.getByText("人工审核趋势", { exact: true }).waitFor();
+  await page.getByRole("columnheader", { name: "更新时间（北京）", exact: true }).waitFor();
+  assert.ok((await page.locator(".ant-table-tbody time").allTextContents()).includes("2026/01/02 00:01"));
+  await page.waitForFunction(() => document.querySelectorAll("[data-review-date]").length === 30);
+  assert.equal(await page.locator('[data-review-date][data-count="1"]').count(), 2);
+  assert.ok((await page.locator(".review-trend-note").innerText()).includes("历史估算"));
+  for (const days of [7, 90, 7]) {
+    await page.getByText("近 " + days + " 天", { exact: true }).click();
+    await page.waitForURL(url => url.searchParams.get("trendDays") === String(days));
+    await page.waitForFunction(expected => document.querySelectorAll("[data-review-date]").length === expected, days);
+  }
+  await page.locator('[data-review-date][data-count="1"]').first().hover();
+  await page.getByRole("tooltip").filter({ hasText: "人工审核 1 页" }).waitFor();
+  await page.mouse.move(0, 0);
+  for (const width of [1440, 768, 390]) {
+    await page.setViewportSize({ width, height: 960 });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const bounds = await page.locator(".review-trend").evaluate(card => ({
+      left: card.getBoundingClientRect().left, right: card.getBoundingClientRect().right,
+      width: card.scrollWidth, client: card.clientWidth, viewport: innerWidth,
+    }));
+    assert.ok(bounds.left >= 0 && bounds.right <= bounds.viewport + 1, JSON.stringify(bounds));
+    assert.ok(bounds.width <= bounds.client + 1, JSON.stringify(bounds));
+    await page.screenshot({ path: output + "/review-trend-" + width + ".png", fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 960 });
+
   await page.screenshot({ path: output + "/01-list.png", fullPage: true });
   await page.getByRole("button", { name: "全部谱页 5", exact: true }).waitFor();
   await page.getByRole("button", { name: "草稿 3", exact: true }).click();
@@ -197,7 +229,7 @@ try {
     await page.screenshot({ path: output + "/editor-" + viewport.width + ".png", fullPage: true });
   }
   assert.deepEqual(errors, []);
-  console.log("PASS: Chromium list page numbers, reversible deletion, failed-save retention, AI queue confirmation, previous-page return, review counts, split labels, compact rows, cross-platform Q/delete/undo/redo in crops, Ctrl+S save, centred Tab view switching, card overflow, Select suffix alignment, 1024/390px layout.");
+  console.log("PASS: Chromium list page numbers, reversible deletion, failed-save retention, AI queue confirmation, previous-page return, review counts, split labels, compact rows, review trend ranges/tooltip/responsive layout, Beijing updated timestamps, cross-platform Q/delete/undo/redo in crops, Ctrl+S save, centred Tab view switching, card overflow, Select suffix alignment, 1024/390px layout.");
  } catch (error) {
   if (page) {
     console.error("Review browser state", await page.evaluate(() => ({

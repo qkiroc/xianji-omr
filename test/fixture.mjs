@@ -10,7 +10,7 @@ import {join} from 'node:path';
 import {hashPassword,poolFor} from '../server/src/config.mjs';
 import {withLock,migrate,files} from '../server/src/migrate.mjs';
 import {createApp} from '../server/src/app.mjs';
-export async function fixture({port=55439,webPort=0,origin,previewLogin=false,migrationVersion=7,webHandler,appFactory=createApp}={}){
+export async function fixture({port=55439,webPort=0,origin,previewLogin=false,migrationVersion=8,webHandler,appFactory=createApp}={}){
  const dir=await mkdtemp(join(tmpdir(),'omr-isolated-'));
  const binaries=new URL('../node_modules/@embedded-postgres/linux-x64/native/bin/',import.meta.url).pathname;
  let shim=process.env.OMR_TEST_ROOT_SHIM;

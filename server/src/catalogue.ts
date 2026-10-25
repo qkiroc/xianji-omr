@@ -1,6 +1,7 @@
 import { need, ID } from "./annotation.ts";
 import { transaction, datasetRecord, songLock } from "./datasets.ts";
 import { pageMeta } from "./pages.ts";
+import { humanReviewTrend } from "./review-trend.ts";
 export function pageFilter(datasetId: any, q: any = {}) {
   need(ID.test(datasetId), "数据集ID无效");
   need(!q.deleted || ["active", "deleted"].includes(q.deleted), "删除状态无效");
@@ -75,6 +76,8 @@ export function registerCatalogue(router: any, { pool }: any) {
               [25, 50, 100].includes(pageSize),
             "分页参数无效",
           );
+          const trendDays = Number(req.query.trendDays ?? 30);
+          need([7, 30, 90].includes(trendDays), "趋势范围应为7、30或90天");
           const f = pageFilter(req.params.datasetId, req.query);
           const total = Number(
               (
@@ -110,7 +113,8 @@ export function registerCatalogue(router: any, { pool }: any) {
               scope.params,
             )
           ).rows[0];
-          return { items: rows.map(item), total, page, pageSize, reviewCounts };
+          const reviewTrend = await humanReviewTrend(c, scope, trendDays);
+          return { items: rows.map(item), total, page, pageSize, reviewCounts, reviewTrend };
         },
         { isolation: "REPEATABLE READ" },
       ),

@@ -23,6 +23,8 @@ import {
   useQueryString,
 } from "../../shared/client";
 import { useNavigation } from "../navigation";
+import { ReviewTrendChart } from "./review-trend";
+import { formatUpdatedAt, type ReviewTrend } from "../../shared/review-trend";
 interface PageRow extends PageImage {
   songName: string;
   boxCount: number;
@@ -37,6 +39,7 @@ interface ReviewCounts {
 }
 interface PageCatalogue extends PageResult<PageRow> {
   reviewCounts: ReviewCounts;
+  reviewTrend: ReviewTrend | null;
 }
 const reviewStates = [
   { key: "", label: "全部谱页", count: "total" },
@@ -62,6 +65,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
       page: 1,
       pageSize: 50,
       reviewCounts: { total: 0, draft: 0, ai_reviewed: 0, confirmed: 0, legacy: 0 },
+      reviewTrend: null,
     }),
     [dataset, setDataset] = useState<Dataset | null>(null),
     [songs, setSongs] = useState<Song[]>([]),
@@ -78,7 +82,8 @@ export function SongList({ datasetId }: { datasetId: string }) {
     filters = q.toString(),
     page = Number(q.get("page") || 1),
     pageSize = Number(q.get("pageSize") || 50),
-    deleted = q.get("deleted") === "deleted";
+    deleted = q.get("deleted") === "deleted",
+    trendDays = [7, 30, 90].includes(Number(q.get("trendDays"))) ? Number(q.get("trendDays")) : 30;
   const load = async () => {
     const epoch = ++requestId.current;
     try {
@@ -190,6 +195,8 @@ export function SongList({ datasetId }: { datasetId: string }) {
           ))}
         </div>
       </section>
+      <ReviewTrendChart trend={data.reviewTrend} days={trendDays} loading={loading}
+        onDaysChange={(days) => update({ trendDays: days, page: 1 })} />
       <div className="page-list-panel">
         <div className="page-list-filters">
           <AntInput.Search
@@ -240,7 +247,7 @@ export function SongList({ datasetId }: { datasetId: string }) {
           rowKey="id"
           loading={loading}
           size="small"
-          scroll={{ x: 820 }}
+          scroll={{ x: 1000 }}
           dataSource={data.items}
           rowSelection={{
             selectedRowKeys: selected,
@@ -279,6 +286,14 @@ export function SongList({ datasetId }: { datasetId: string }) {
                 row.status === "confirmed" ? "已确认" :
                 row.status === "ai_reviewed" ? "AI 已复核" : "草稿"
               }</Tag>,
+            },
+            {
+              title: "更新时间（北京）",
+              key: "updatedAt",
+              width: 176,
+              render: (_, row) => <time className="page-updated-at" dateTime={row.updatedAt}>
+                {formatUpdatedAt(row.updatedAt)}
+              </time>,
             },
             {
               title: "操作",
