@@ -41,7 +41,7 @@ jobs:
           node-version: '22'
           package-manager-cache: false
       - name: Verify notation, encrypted assets and replacement safety
-        run: node --test test/synthetic-cloud-auth.test.mjs test/synthetic-cloud.test.mjs test/synthetic-accompaniment.test.mjs test/synthetic-layout.test.mjs test/synthetic-replacement.test.mjs
+        run: node --test test/synthetic-annotation-repair.test.mjs test/synthetic-cloud-auth.test.mjs test/synthetic-cloud.test.mjs test/synthetic-accompaniment.test.mjs test/synthetic-layout.test.mjs test/synthetic-replacement.test.mjs
 
   produce:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[resume-synthetic]'))

@@ -16,14 +16,14 @@ async function fixture(t){
  const original={sourceId:job.id,profiles:[{id:profile.id,songId:'edition-1',status:'complete',pages:[{pageIndex:0,pageId:'old-1',sha256:oldChecksum,version:4,status:'confirmed',boxCount:1}]}]};await writeFile(join(sourceDirectory,'state.json'),JSON.stringify(original));
  const values=new Map([['old-1',{image:{id:'old-1',datasetId:plan.datasetId,checksum:oldChecksum,width:1000,height:1400,version:4,status:'confirmed',source:'synthetic:original-v1:song-1:synth195-01'},boxes:annotation.boxes}]]);
  const song={id:'edition-1',name:'old edition',version:1,song_group_key:job.songGroupKey,split:job.split};
- const events=[],behavior={failSave:false,failAfterDeletion:false,unrelatedSnapshot:false,wrongGroup:false,renameDuringReorder:false,failRename:false};let sequence=0;
+ const events=[],behavior={failSave:false,failAfterDeletion:false,unrelatedSnapshot:false,wrongGroup:false,renameDuringReorder:false,failRename:false};let sequence=0,deletionIds=[];
  const api=async(path,value,method)=>{
   events.push({path,value,method});
   if(path==='/api/v2/datasets/dataset-1/songs')return[{...song,song_group_key:behavior.wrongGroup?'other-group':job.songGroupKey}];
   if(path==='/api/v2/songs/edition-1'){assert.equal(method,'PUT');assert.equal(value.version,song.version);if(behavior.failRename){behavior.failRename=false;const error=Error('metadata version conflict');error.status=409;throw error;}Object.assign(song,{name:value.name,song_group_key:value.songGroupKey,split:value.split,version:song.version+1});return structuredClone(song);}
-  if(path==='/api/v2/songs/edition-1/pages')return[...values.values()].map(v=>({...v.image,name:v.image.id==='old-1'?'old.png':page.filename}));
-  if(path==='/api/v2/deletions/preview')return{token:'preview-token',summary:{pages:1,snapshots:behavior.unrelatedSnapshot?1:0}};
-  if(path==='/api/v2/deletions/execute'){values.delete('old-1');song.version++;if(behavior.failAfterDeletion){behavior.failAfterDeletion=false;throw Error('network interruption after delete');}return{deleted:true};}
+  if(path==='/api/v2/songs/edition-1/pages')return[...values.values()].map(v=>({...v.image,name:v.image.name||(v.image.id==='old-1'?'old.png':page.filename)}));
+  if(path==='/api/v2/deletions/preview'){deletionIds=value.ids;return{token:'preview-token',summary:{pages:value.ids.length,snapshots:behavior.unrelatedSnapshot?1:0}};}
+  if(path==='/api/v2/deletions/execute'){for(const id of deletionIds)values.delete(id);song.version++;if(behavior.failAfterDeletion){behavior.failAfterDeletion=false;throw Error('network interruption after delete');}return{deleted:true};}
   if(path==='/api/v2/songs/edition-1/pages/reorder'){if(behavior.renameDuringReorder){song.name='Manually renamed';song.version++;}return value.items.map((p,i)=>({...values.get(p.id).image,pageOrder:i+1}));}
   const match=path.match(/^\/api\/v2\/pages\/([^/]+)(\/confirm)?$/);assert.ok(match,'unexpected mock route '+path);const current=values.get(match[1]);if(!current){const e=Error('not found');e.status=404;throw e;}
   if(match[2]){current.image.status='confirmed';current.image.version++;current.boxes=current.boxes.map(b=>({...b,reviewStatus:'confirmed'}));}
@@ -32,7 +32,7 @@ async function fixture(t){
  };
  const request=async(path,options)=>{assert.equal(path,'/api/v2/songs/edition-1/pages');assert.equal(options.method,'POST');const id='new-'+(++sequence);const v={image:{id,datasetId:plan.datasetId,checksum,width:1000,height:1400,version:1,status:'draft'},boxes:[]};values.set(id,v);return new Response(JSON.stringify(v));};
  const run=(overrides={})=>uploadEdition({plan,job,profile,directory,result:{layoutRevision:LAYOUT_REVISION},sourceDirectory,backupDirectory,api,request,...overrides});
- return{root,run,values,events,behavior,sourceDirectory,get uploads(){return sequence;}};
+ return{root,run,values,events,behavior,sourceDirectory,job,get uploads(){return sequence;}};
 }
 test('replacement confirms new images before deleting old pages and preserves split/group',async t=>{
  const f=await fixture(t),s=await f.run();assert.equal(s.phase,'complete');assert.equal(f.uploads,1);assert.ok(!f.values.has('old-1'));assert.equal(f.values.get('new-1').image.status,'confirmed');
@@ -95,4 +95,19 @@ test('an interrupted metadata rename resumes confirmed pages without another upl
  await assert.rejects(f.run({renameSong:true}),e=>e.status===409);
  assert.ok(!f.values.has('old-1'));assert.equal(f.values.get('new-1').image.status,'confirmed');
  const state=await f.run({renameSong:true});assert.equal(state.phase,'complete');assert.equal(f.uploads,1);
+});
+
+
+test('unexpected pages without original render evidence are preserved',async t=>{
+ const f=await fixture(t);f.values.set('manual-extra',{image:{id:'manual-extra',datasetId:'dataset-1',checksum:'unknown',version:1,status:'draft'},boxes:[]});
+ await assert.rejects(f.run(),/Unexpected page in song/);assert.ok(f.values.has('manual-extra'));assert.ok(f.values.has('old-1'));
+});
+
+
+test('a verified pristine original tail upload is recovered and removed after replacement confirmation',async t=>{
+ const f=await fixture(t),catalog=JSON.parse(await readFile(new URL('../tools/synthetic/original-page-checksums.json',import.meta.url),'utf8'));
+ f.job.id='trial-gu-niang-bie-ku-qi';f.values.get('old-1').image.source='synthetic:original-v1:'+f.job.id+':synth195-01';
+ const tail=catalog[f.job.id+':synth195-01'].at(-1);
+ f.values.set('tail',{image:{id:'tail',name:tail.filename,datasetId:'dataset-1',checksum:tail.sha256,version:1,status:'draft'},boxes:[]});
+ const state=await f.run();assert.equal(state.phase,'complete');assert.ok(!f.values.has('tail'));assert.equal(f.values.get('new-1').image.status,'confirmed');assert.equal(f.uploads,1);
 });

@@ -1,3 +1,4 @@
+import {ANNOTATION_REVISION,repairEditionAnnotations} from './repair-annotations.mjs';
 import {readFile,writeFile,mkdir,rename,open,unlink} from 'node:fs/promises';
 import {join,resolve,dirname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -67,7 +68,7 @@ async function finishPendingLegacy(batch,sourcePlan,conn){
 }
 async function verifyCompletedEdition(batch,item,sourcePlan,api){
  const state=await readJSON(join(batch,item.sourceId,'state.json')),profile=state?.profiles.find(p=>p.id===item.profileId);if(!profile?.pages?.length||profile.layoutRevision!==ACCOMPANIMENT_REVISION)throw Error('Completed edition checkpoint is missing');
- for(const page of profile.pages){const saved=await api('/api/v2/pages/'+page.pageId);if(saved.image.datasetId!==sourcePlan.datasetId||saved.image.checksum!==page.sha256||saved.image.version!==page.version||saved.image.status!=='confirmed'||saved.boxes.length!==page.boxCount||saved.boxes.some(b=>b.reviewStatus!=='confirmed'))throw Error('Completed remote edition was changed; preserving it');}
+ for(const page of profile.pages){if(page.annotationRepairIntent)continue;const saved=await api('/api/v2/pages/'+page.pageId);if(saved.image.datasetId!==sourcePlan.datasetId||saved.image.checksum!==page.sha256||saved.image.version!==page.version||saved.image.status!=='confirmed'||saved.boxes.length!==page.boxCount||saved.boxes.some(b=>b.reviewStatus!=='confirmed'))throw Error('Completed remote edition was changed; preserving it');}
 }
 async function writePreviews(root,batch,out,manifest,installed,songId){
  const first=manifest.queue.find(q=>!songId||q.sourceId===songId);if(!first)throw Error('Unknown song');
@@ -99,20 +100,36 @@ export async function runAccompaniment(args=process.argv.slice(2)){
  await lock.writeFile(JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}));
  const report=await readJSON(reportFile,{revision:ACCOMPANIMENT_REVISION,completed:[],failed:[],status:'running'}),startedAt=Date.now(),timeBudget=Number(option('--time-budget',300))*60000;let browser,conn,done=0;
  try{
-  if(upload){await waitForPreviousTask(batch);conn=await connection(root,sourcePlan);await finishPendingLegacy(batch,sourcePlan,conn);}
+  if(upload){await waitForPreviousTask(batch);conn=await connection(root,sourcePlan);await finishPendingLegacy(batch,sourcePlan,conn);
+   // Finish already-uploaded transactions with their frozen pixels before annotation migration.
+   for(const item of manifest.queue){const directory=join(out,item.sourceId,item.profileId),pending=await readJSON(join(directory,'replacement-state.json')),result=await readJSON(join(directory,'render-result.json'));if(!pending||pending.phase==='complete'||!pending.newPages?.length||!result)continue;
+    const job=sourcePlan.jobs.find(j=>j.id===item.sourceId);log({event:'recovering-interrupted-accompaniment',title:item.title,profile:item.profileId,phase:pending.phase});
+    const state=await uploadEdition({plan:sourcePlan,job,profile:item.profile,directory,result,...conn,sourceDirectory:join(batch,job.id),backupDirectory:join(out,'previous-states'),revision:ACCOMPANIMENT_REVISION,renameSong:true});
+    const key=item.sourceId+':'+item.profileId;if(!report.completed.some(p=>p.key===key))report.completed.push({key,phase:item.phase,style:item.profile.pluckNotation,songId:state.songId,pages:state.newPages.length,rendererSha256:result.rendererSha256});await atomic(reportFile,report);log({event:'interrupted-accompaniment-recovered',title:item.title,profile:item.profileId,completedEditions:report.completed.length});
+   }
+}
   if(render){const {chromium}=await import(pathToFileURL(join(root,'node_modules/playwright-core/index.mjs')));browser=await chromium.launch({...((option('--browser',process.env.OMR_BROWSER_PATH||(process.platform==='win32'?'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe':undefined)))?{executablePath:option('--browser',process.env.OMR_BROWSER_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe')}:{ }),headless:true});}
   const renderer=render?await import(pathToFileURL(installed.path)):null,limit=Number(option('--limit',Infinity));if(!(limit>0))throw Error('--limit must be positive');
   report.status='running';delete report.failure;let phase;
   for(const item of manifest.queue){
-   if(option('--song')&&item.sourceId!==option('--song'))continue;const key=item.sourceId+':'+item.profileId,completed=report.completed.find(p=>p.key===key);if(completed&&(upload||flag('--cloud'))){if(completed.rendererSha256!==installed.sha256&&!flag('--cloud'))throw Error('An uploaded edition uses another renderer; keep this revision frozen');if(flag('--cloud')&&upload)await verifyCompletedEdition(batch,item,sourcePlan,conn.api);continue;}if(done>=limit||Date.now()-startedAt>timeBudget){report.status='paused';report.current=null;await atomic(reportFile,report);log({event:'paused',reason:'limit',completedEditions:report.completed.length});return;}
+   if(option('--song')&&item.sourceId!==option('--song'))continue;const key=item.sourceId+':'+item.profileId,completed=report.completed.find(p=>p.key===key);if(completed&&(upload||flag('--cloud'))){if(completed.rendererSha256!==installed.sha256&&!flag('--cloud'))throw Error('An uploaded edition uses another renderer; keep this revision frozen');if(flag('--cloud')&&upload){await verifyCompletedEdition(batch,item,sourcePlan,conn.api);
+    if(completed.annotationRevision!==ANNOTATION_REVISION){
+     if(Date.now()-startedAt>timeBudget){report.status='paused';await atomic(reportFile,report);return;}
+     const job=sourcePlan.jobs.find(j=>j.id===item.sourceId),sourceDirectory=join(batch,job.id),directory=join(out,job.id,item.profileId);
+     if(!renderer)throw Error('Use --run to repair completed annotations');
+     await renderer.renderBatchProfile({source:await readJSON(join(sourceDirectory,'source-schema2.json')),score:await readJSON(join(sourceDirectory,'converted-score.json')),profile:item.profile,out:join(out,job.id),browser});
+     await repairEditionAnnotations({sourceDirectory,profileId:item.profileId,directory,api:conn.api,datasetId:sourcePlan.datasetId});
+     completed.annotationRevision=ANNOTATION_REVISION;await atomic(reportFile,report);log({event:'annotations-repaired',title:item.title,profile:item.profileId,completedEditions:report.completed.length});
+    }
+   }continue;}if(done>=limit||Date.now()-startedAt>timeBudget){report.status='paused';report.current=null;await atomic(reportFile,report);log({event:'paused',reason:'limit',completedEditions:report.completed.length});return;}
    if(phase!==item.phase){phase=item.phase;log({event:'phase',phase,total:manifest.queue.filter(q=>q.phase===phase).length});}
    report.current={sourceId:item.sourceId,title:item.title,profile:item.profileId,phase};report.updatedAt=new Date().toISOString();await atomic(reportFile,report);
-   const job=sourcePlan.jobs.find(j=>j.id===item.sourceId),sourceDirectory=join(batch,job.id),source=await readJSON(join(sourceDirectory,'source-schema2.json')),score=await readJSON(join(sourceDirectory,'converted-score.json')),profile=item.profile,directory=join(out,job.id,profile.id),resultFile=join(directory,'render-result.json');let result=await readJSON(resultFile);const pending=await readJSON(join(directory,'replacement-state.json')),resumeExisting=!!(upload&&flag('--cloud')&&pending&&result&&result.layoutRevision===ACCOMPANIMENT_REVISION&&pending.newPages?.length);
+   const job=sourcePlan.jobs.find(j=>j.id===item.sourceId),sourceDirectory=join(batch,job.id),source=await readJSON(join(sourceDirectory,'source-schema2.json')),score=await readJSON(join(sourceDirectory,'converted-score.json')),profile=item.profile,directory=join(out,job.id,profile.id),resultFile=join(directory,'render-result.json');let result=await readJSON(resultFile);const pending=await readJSON(join(directory,'replacement-state.json')),resumeExisting=!!(flag('--cloud')&&pending&&result&&result.layoutRevision===ACCOMPANIMENT_REVISION&&pending.newPages?.length);
    if(render&&!resumeExisting&&(!result||result.rendererSha256!==installed.sha256||result.layoutRevision!==ACCOMPANIMENT_REVISION)){
     const transaction=await readJSON(join(directory,'replacement-state.json'));if(transaction?.newPages?.length)throw Error('Renderer changed after this edition started uploading; preserving its checkpoint');
     result=await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});result.rendererSha256=installed.sha256;await atomic(resultFile,result);
    }
-   if(upload){if(!result||!resumeExisting&&result.rendererSha256!==installed.sha256)throw Error('Current revision not rendered: '+key);const state=await uploadEdition({plan:sourcePlan,job,profile,directory,result,...conn,sourceDirectory,backupDirectory:join(out,'previous-states'),revision:ACCOMPANIMENT_REVISION,renameSong:true});report.completed.push({key,phase,style:profile.pluckNotation,songId:state.songId,pages:state.newPages.length,rendererSha256:result.rendererSha256});}
+   if(upload){if(!result||!resumeExisting&&result.rendererSha256!==installed.sha256)throw Error('Current revision not rendered: '+key);const state=await uploadEdition({plan:sourcePlan,job,profile,directory,result,...conn,sourceDirectory,backupDirectory:join(out,'previous-states'),revision:ACCOMPANIMENT_REVISION,renameSong:true});if(resumeExisting){await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});}await repairEditionAnnotations({sourceDirectory,profileId:profile.id,directory,api:conn.api,datasetId:sourcePlan.datasetId});report.completed.push({annotationRevision:ANNOTATION_REVISION,key,phase,style:profile.pluckNotation,songId:state.songId,pages:state.newPages.length,rendererSha256:result.rendererSha256});}
    done++;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:upload?'replaced':'rendered',phase,title:job.title,profile:profile.id,style:profile.pluckNotation,pages:result.pageCount,crossPlucks:result.accompanimentCoverage?.renderedCrossPlucks,completedEditions:report.completed.length});
   }
   report.status=option('--song')?'selection-complete':'complete';report.current=null;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:'complete',status:report.status,editions:report.completed.length,pages:report.completed.reduce((n,p)=>n+p.pages,0)});

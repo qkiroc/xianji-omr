@@ -10,6 +10,11 @@ export async function installRenderer(root=join(workspace,'.artifacts/synthetic-
  if(start<0||end<start)throw Error('Verified base renderer stage missing');
  const stage=`  const page=await browser.newPage({viewport:{width:Math.max(1400,profile.pageWidth+40),height:profile.pageHeight+40},deviceScaleFactor:1});\n  await page.setContent(renderDocument(fragment,profile),{waitUntil:'load'});\n  await page.evaluate(()=>document.fonts.ready);\n  const rendered=await page.evaluate(paginateScore,{profile,styles:stylesForScore(profile,source,score.bars.length+1)});\n  await page.evaluate(()=>document.fonts.ready);\n`;
  let text="import {renderDocument,stylesForScore,paginateScore,mergeLyricRegions} from '../../tools/synthetic/page-style.mjs';\n"+original.slice(0,start)+stage+original.slice(end);
+ // Geometry must include only visible numbered-notation artwork, never lyric fallbacks or hit targets.
+ const oldMelody="const melody=union([...row.querySelectorAll('[data-sheet-melody-lane]')].flatMap(el=>leaves(el,'melody')).concat([...row.querySelectorAll('[data-sheet-connections] path')].map(el=>el.getBoundingClientRect())));";
+ const newMelody="const melody=union([...row.querySelectorAll('[data-sheet-melody-lane] [data-synth-track=\"melody\"] .sheet-note-art,[data-melody-tuplet],[data-sheet-connections]')].flatMap(el=>[...el.querySelectorAll('path,line,text,circle,ellipse,polygon,polyline')]).filter(el=>!el.closest('[data-melody-lyric],[data-cursor-bar]')&&getComputedStyle(el).display!=='none'&&getComputedStyle(el).visibility!=='hidden').map(el=>el.getBoundingClientRect()));";
+ if(!text.includes(oldMelody))throw Error('Melody geometry stage missing');text=text.replace(oldMelody,newMelody);
+ text=text.replace("container.querySelectorAll('[data-meta]')","container.querySelectorAll('[data-meta]:not([data-key-kind=\"original\"])')");
  const validation='    regions(p.annotation.boxes,p.width,p.height,';
  if(!text.includes(validation))throw Error('Verified geometry validator missing');
  text=text.replace(validation,'    p.annotation.boxes=mergeLyricRegions(p.annotation.boxes);\n'+validation);

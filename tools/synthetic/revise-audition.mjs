@@ -83,6 +83,22 @@ export async function uploadEdition({plan,job,profile,directory,result,api,reque
   Object.assign(entry,{status:'confirmed',version:value.image.version,boxCount:value.boxes.length});await save();
  }
  if(state.phase==='upload'){if(state.newPages.length!==local.length)throw Error('Replacement page count differs');state.phase='cleanup';await save();}
+ if(state.phase==='cleanup'||state.phase==='reorder'){
+  const listed=await api('/api/v2/songs/'+state.songId+'/pages'),tracked=new Set([...state.oldPages,...state.newPages].map(p=>p.pageId));
+  const extras=listed.filter(p=>!tracked.has(p.id));
+  if(extras.length){
+   const catalog=await readJSON(new URL('./original-page-checksums.json',import.meta.url),{}),known=catalog[job.id+':'+profile.id]||[];
+   const recovered=[];
+   for(const extra of extras){const value=await api('/api/v2/pages/'+extra.id),image=value.image;
+    const expected=known.find(p=>p.filename===extra.name&&p.sha256===image.checksum);
+    const untouched=image.version===1&&image.status==='draft'&&!image.source&&value.boxes.length===0;
+    const synthetic=image.version===3&&image.status==='confirmed'&&value.boxes.every(b=>b.reviewStatus==='confirmed')&&image.source?.startsWith('synthetic:'+plan.revision+':'+job.id+':'+profile.id);
+    if(!expected||image.datasetId!==plan.datasetId||(!untouched&&!synthetic))throw Error('Unexpected page in song; preserving it: '+JSON.stringify({pageId:extra.id,name:extra.name,version:image.version,status:image.status,checksum:image.checksum}));
+    recovered.push({pageId:extra.id,sha256:image.checksum,filename:extra.name,status:untouched?'uploaded':'confirmed',...(untouched?{}:{version:image.version})});
+   }
+   state.oldPages.push(...recovered);state.phase='cleanup';await save();log({event:'recovered-original-tail-pages',sourceId:job.id,profile:profile.id,pages:recovered.length});
+  }
+ }
  if(state.phase==='cleanup'){
   // Only pages tracked by the paused original import are eligible for cleanup.
   const obsolete=[];

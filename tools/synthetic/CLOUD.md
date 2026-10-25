@@ -37,3 +37,5 @@ node tools/synthetic/configure-cloud.mjs
 
 
 A push to `main` normally runs verification only. A maintainer commit containing `[resume-synthetic]` also resumes production from the newest encrypted checkpoint, using the existing repository Secrets. This permits a deployed repair to continue an interrupted cloud batch.
+
+Annotation repair tightens numbered-notation regions to visible note artwork and omits original-key labels. Existing editions keep their pixels and page IDs; every annotation write is version checked, confirmed, and checkpointed. Untracked original tail pages can be removed only when their filename/checksum matches the original render catalog and their draft or synthetic confirmation state is untouched.
