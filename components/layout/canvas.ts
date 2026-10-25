@@ -1,5 +1,6 @@
 import { regionIssues } from "../../shared/region-issues";
 import { clientId } from "../../shared/client";
+import { blocksEditorShortcut } from "../../shared/editor-shortcuts";
 const META = [
   "title",
   "performer",
@@ -71,9 +72,7 @@ export class AnnotationCanvas {
       (e: any) => {
         if (
           e.defaultPrevented || e.isComposing || e.keyCode === 229 ||
-          ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) ||
-          document.querySelector("dialog[open], .ant-modal-root") ||
-          e.target.isContentEditable ||
+          blocksEditorShortcut(e) ||
           this.stage.closest?.("[inert]") ||
           !this.stage.clientHeight ||
           !this.image ||

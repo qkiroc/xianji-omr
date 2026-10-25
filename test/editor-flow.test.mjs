@@ -21,6 +21,9 @@ const issuesUrl = moduleUrl(
     "utf8",
   ),
 );
+const shortcutsUrl = moduleUrl(
+  await readFile(new URL("../shared/editor-shortcuts.ts", import.meta.url), "utf8"),
+);
 const source = (
   await readFile(
     new URL("../components/layout/canvas.ts", import.meta.url),
@@ -28,12 +31,14 @@ const source = (
   )
 )
   .replace('"../../shared/client"', JSON.stringify(client))
+  .replace('"../../shared/editor-shortcuts"', JSON.stringify(shortcutsUrl))
   .replace('"../../shared/region-issues"', JSON.stringify(issuesUrl));
 const { AnnotationCanvas } = await import(moduleUrl(source));
 function setup() {
   globalThis.window = new EventTarget();
   globalThis.document = new EventTarget();
   document.querySelector = () => null;
+  document.querySelectorAll = () => [];
   globalThis.ResizeObserver = class {
     observe() {}
     disconnect() {}
