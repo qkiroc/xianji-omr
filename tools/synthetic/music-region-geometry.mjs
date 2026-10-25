@@ -20,13 +20,16 @@ export function musicInkBounds(row){
  }
  const primitives=[...row.querySelectorAll('[data-sheet-melody-lane] path,[data-sheet-melody-lane] line,[data-sheet-melody-lane] text,[data-sheet-melody-lane] circle,[data-sheet-melody-lane] ellipse,[data-sheet-melody-lane] polygon,[data-sheet-melody-lane] polyline,[data-sheet-connections] path')];
  const melodyNodes=primitives.filter(el=>!el.closest('[data-melody-lyric],[data-cursor-bar],[data-ignore-annotation]')&&(el.tagName.toLowerCase()!=='text'||el.closest('.sheet-note-art,[data-melody-tuplet],[data-sheet-connections]')));
- const melody=union(melodyNodes.map(ink)),lyrics=[...row.querySelectorAll('[data-melody-lyric]')].map(el=>({verse:el.dataset.lyricVerse,bounds:ink(el)})).filter(v=>v.bounds);
- return{melody,lyrics};
+ const lyrics=[...row.querySelectorAll('[data-melody-lyric]')].map(el=>({verse:el.dataset.lyricVerse,bounds:ink(el)})).filter(v=>v.bounds),lyricTop=lyrics.length?Math.floor(Math.min(...lyrics.map(v=>v.bounds.top))):Infinity;
+ // Shared structural dividers may extend through both tracks. Their full extent belongs to the
+ // parent system; include the melody-height segment and full horizontal extent in the melody crop.
+ const measured=melodyNodes.map(el=>{const bounds=ink(el);if(!bounds)return null;const divider=['line','circle'].includes(el.tagName.toLowerCase())&&!el.closest('.sheet-note-art,[data-melody-tuplet],[data-sheet-connections]');return divider?{...bounds,bottom:Math.min(bounds.bottom,lyricTop)}:bounds;}).filter(b=>b&&b.bottom>=b.top);
+ const melody=union(measured);return{melody,lyrics};
 }
 // Clip padding only. If actual artwork overlaps, stop rather than cutting through glyphs.
 export function separateMusicPadding(children,musicInk,originTop){
  const melody=children.find(c=>c.classKey==='melody'),lyrics=children.filter(c=>c.classKey==='lyrics');if(!melody||!lyrics.length)return;
  const inkBottom=Math.ceil(musicInk.melody.bottom-originTop),inkTop=Math.floor(Math.min(...musicInk.lyrics.map(l=>l.bounds.top))-originTop);
- if(inkBottom>inkTop)throw Error('Actual melody and lyric artwork overlap; refusing clipped annotations');
+ if(inkBottom>inkTop)throw Error('Actual melody and lyric artwork overlap; refusing clipped annotations: '+JSON.stringify({inkBottom,inkTop,melody:musicInk.melody,lyricTop:Math.min(...musicInk.lyrics.map(l=>l.bounds.top))}));
  const boundary=Math.floor((inkBottom+inkTop)/2);melody.bbox[3]=Math.min(melody.bbox[3],boundary);for(const lyric of lyrics)lyric.bbox[1]=Math.max(lyric.bbox[1],boundary);
 }
