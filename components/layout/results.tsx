@@ -65,6 +65,8 @@ export function LayoutCrops({
   taxonomy,
   dirty,
   onAdjust,
+  selected,
+  onSelect,
   stateRef,
 }: {
   doc: LayoutDocument;
@@ -72,6 +74,8 @@ export function LayoutCrops({
   taxonomy: Category[];
   dirty: boolean;
   onAdjust: (id: string) => void;
+  selected: string | null;
+  onSelect: (id: string) => void;
   stateRef: React.RefObject<CropState>;
 }) {
   const query = useSearchParams();
@@ -118,7 +122,7 @@ export function LayoutCrops({
             {dirty
               ? "预览当前未保存修改 · 保存后才更新服务端"
               : "按当前像素边界裁切"}{" "}
-            · 点击裁片返回原图调整
+            · 悬停或聚焦裁片后按 Q 删除，Ctrl/⌘+Z 撤销 · 点击裁片返回原图调整
           </p>
         </div>
         <div className="actions">
@@ -156,8 +160,13 @@ export function LayoutCrops({
               key={b.id}
               className={
                 "crop-card " +
-                (compactClasses.has(b.classKey || "") ? "" : "wide")
+                (compactClasses.has(b.classKey || "") ? "" : "wide") +
+                (selected === b.id ? " crop-card-selected" : "")
               }
+              style={{ outline: selected === b.id ? "2px solid" : undefined,
+                outlineColor: category?.color, outlineOffset: 2 }}
+              onPointerEnter={() => onSelect(b.id)}
+              onFocusCapture={() => onSelect(b.id)}
             >
               <div className="crop-card-head">
                 <b style={{ color: category?.color }}>

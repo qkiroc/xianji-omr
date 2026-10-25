@@ -57,11 +57,11 @@ const page = (id, order) => ({
     pageOrder: order, version: 1, coordinate: {}, width: 200, height: 160 },
   boxes: [structuredClone(box), { ...structuredClone(box), id: "keep", readingOrder: 1, x: 100 }], deletedBoxes: [],
 });
-async function mount(t, { second = true, failSave = false } = {}) {
+async function mount(t, { second = true, failSave = false, view = "original" } = {}) {
   const pages = new Map([["a", page("a", 2)], ...(second ? [["b", page("b", 5)]] : [])]);
   const requests = [], routes = [];
   window.sessionStorage.clear();
-  const initial = "/datasets/ds/songs/song/pages/a?status=ai_reviewed&queue=ai_reviewed&split=train&search=score&page=2";
+  const initial = "/datasets/ds/songs/song/pages/a?status=ai_reviewed&queue=ai_reviewed&split=train&search=score&page=2&view=" + view;
   history.replaceState({}, "", initial);
   globalThis.fetch = async (input, options = {}) => {
     const url = new URL(String(input), "http://localhost");
@@ -220,4 +220,113 @@ test("未保存时翻页可取消，保存后继续才记录上一页", async t 
   await act(async () => {});
   await m.click("上一页");
   assert.ok(m.routes.at(-1).includes("/pages/a?"));
+});
+
+async function keypress(target, key, options = {}) {
+  const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options });
+  await act(async () => target.dispatchEvent(event));
+  return event;
+}
+async function selectShortcutTarget(m, view) {
+  if (view === "original") await m.click("1 ·");
+  else {
+    await act(async () => m.host.querySelector(".crop-card")
+      .dispatchEvent(new window.PointerEvent("pointerover", { bubbles: true })));
+    assert.ok(m.host.querySelector(".crop-card-selected"));
+  }
+}
+for (const modifier of ["ctrlKey", "metaKey"]) {
+  for (const view of ["original", "crops"]) {
+    test(`Q delete, undo/redo and ${modifier} save work in ${view}`, async t => {
+      const m = await mount(t, { view });
+      await selectShortcutTarget(m, view);
+      const target = m.host.querySelector(view === "original" ? ".stage" : ".crop-results");
+      await keypress(target, "q");
+      assert.ok(m.host.querySelector(".save-status.unsaved"));
+      assert.equal(m.requests.filter(r => r.method !== "GET").length, 0);
+      assert.equal(document.querySelector(".ant-modal"), null);
+      await keypress(target, "z", { [modifier]: true });
+      assert.equal(m.host.querySelector(".save-status.unsaved"), null, "One undo restores the deleted mark");
+      await keypress(target, "Z", { [modifier]: true, shiftKey: true });
+      assert.ok(m.host.querySelector(".save-status.unsaved"));
+      await keypress(target, "z", { [modifier]: true });
+      await keypress(target, "y", { [modifier]: true });
+      assert.ok(m.host.querySelector(".save-status.unsaved"));
+      const saved = await keypress(target, "s", { [modifier]: true });
+      assert.equal(saved.defaultPrevented, true, "Suppress browser Save Page");
+      assert.equal(m.pages.get("a").boxes.length, 1);
+      assert.equal(m.requests.filter(r => r.method === "PUT").length, 1);
+      assert.equal(m.host.querySelector(".save-status.unsaved"), null);
+      await keypress(target, "s", { [modifier]: true });
+      assert.equal(m.requests.filter(r => r.method === "PUT").length, 1, "Clean saves do not repeat requests");
+      await keypress(target, "z", { [modifier]: true });
+      assert.equal(m.host.querySelector(".save-status.unsaved"), null, "Saved history has been reset");
+    });
+  }
+}
+
+test("Text input keeps Q and native undo, while Ctrl+S saves pending marks", async t => {
+  const m = await mount(t);
+  await m.click("1 ·");
+  const input = m.host.querySelector(".properties textarea");
+  assert.ok(input);
+  await keypress(input, "q");
+  await keypress(input, "Backspace");
+  await keypress(input, "z", { ctrlKey: true });
+  assert.equal(m.host.querySelector(".save-status.unsaved"), null);
+  const stage = m.host.querySelector(".stage");
+  await keypress(stage, "q", { isComposing: true });
+  await keypress(stage, "q", { repeat: true });
+  await keypress(stage, "q", { altKey: true });
+  await keypress(stage, "q", { metaKey: true });
+  assert.equal(m.host.querySelector(".save-status.unsaved"), null);
+  await keypress(stage, "Q");
+  // This input stays mounted independently of the selected mark.
+  const otherInput = document.createElement("input");
+  m.host.append(otherInput);
+  await keypress(otherInput, "s", { ctrlKey: true });
+  assert.equal(m.pages.get("a").boxes.length, 1);
+});
+
+test("Closed dialog roots do not block save or Q; visible dialogs protect marks", async t => {
+  const m = await mount(t);
+  await m.click("1 ·");
+  const root = document.createElement("div"), wrap = document.createElement("div");
+  root.className = "ant-modal-root";
+  wrap.className = "ant-modal-wrap";
+  root.append(wrap);
+  m.host.append(root);
+  wrap.getClientRects = () => [{ width: 200, height: 100 }];
+  const stage = m.host.querySelector(".stage");
+  await keypress(stage, "q");
+  assert.equal(m.host.querySelector(".save-status.unsaved"), null);
+  wrap.getClientRects = () => [];
+  await keypress(stage, "q");
+  assert.ok(m.host.querySelector(".save-status.unsaved"));
+  await keypress(stage, "s", { metaKey: true });
+  assert.equal(m.pages.get("a").boxes.length, 1);
+});
+
+test("Crop keyboard save failure keeps the mark deletion undoable", async t => {
+  const m = await mount(t, { view: "crops", failSave: true });
+  await selectShortcutTarget(m, "crops");
+  const target = m.host.querySelector(".crop-results");
+  await keypress(target, "q");
+  await keypress(target, "s", { metaKey: true });
+  assert.ok(m.host.querySelector(".save-status.unsaved"));
+  assert.equal(m.pages.get("a").boxes.length, 2);
+  assert.equal(m.routes.length, 0);
+  await keypress(target, "z", { metaKey: true });
+  assert.equal(m.host.querySelector(".save-status.unsaved"), null);
+});
+
+test("Focusing a crop selects its Q deletion target without changing view", async t => {
+  const m = await mount(t, { view: "crops" });
+  const preview = m.host.querySelectorAll(".crop-preview")[1];
+  await act(async () => preview.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true })));
+  assert.ok(m.host.querySelectorAll(".crop-card")[1].classList.contains("crop-card-selected"));
+  await keypress(preview, "q");
+  assert.equal(m.host.querySelectorAll(".crop-card").length, 1);
+  assert.equal(m.routes.length, 0);
+  assert.equal(m.requests.filter(r => r.method !== "GET").length, 0);
 });

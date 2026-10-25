@@ -15,6 +15,7 @@ import {
   useQueryString,
 } from "../../shared/client";
 import { annotationChanged } from "../../shared/editor-document";
+import { editorShortcut, blocksEditorShortcut } from "../../shared/editor-shortcuts";
 import {
   pageEditorTarget, pageTrailKey, readPageTrail, writePageTrail,
   reviewLabels, reviewQueue, reviewQueueQuery,
@@ -376,16 +377,6 @@ export function LayoutEditor({
   useEffect(() => {
     if (canvas.current) canvas.current.continuousDrawing = continuousDrawing;
   }, [continuousDrawing, taxonomy]);
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "s") return;
-      if (document.querySelector(".ant-modal-root")) return;
-      e.preventDefault();
-      if (dirty && !busy && docRef.current) void save().catch(() => {});
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [dirty, busy, save]);
   const changeBox = (fn: (b: Box) => void) =>
     canvas.current?.edit((boxes: Box[]) => {
       const b = boxes.find((b) => b.id === selected);
@@ -447,19 +438,34 @@ export function LayoutEditor({
       `${base}/songs/${songId}/pages/${pageId}?${useQueryString(new URLSearchParams(q), { view: v })}`,
     );
   useEffect(() => {
-    const toggle = (event: KeyboardEvent) => {
-      if (event.key !== "Tab" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey ||
-          event.isComposing || event.defaultPrevented || busy) return;
-      const target = event.target as Element | null;
-      if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), .ant-select, .ant-input-number, [role="dialog"]') ||
-          document.querySelector('.ant-select [aria-expanded="true"], .ant-select[aria-expanded="true"]') ||
-          [...document.querySelectorAll(".ant-modal-wrap")].some((dialog) => dialog.getClientRects().length > 0)) return;
+    const handler = (event: KeyboardEvent) => {
+      const action = editorShortcut(event);
+      if (!action) return;
+      // Never open the browser's Save Page dialog while in the editor.
+      if (action === "save") event.preventDefault();
+      if (blocksEditorShortcut(event, action === "save")) return;
       event.preventDefault();
-      viewOnly(view === "original" ? "crops" : "original");
+      if (busy || operation.current) return;
+      if (action === "save") {
+        canvas.current?.finish();
+        if (docRef.current && annotationChanged(savedDocument.current, docRef.current))
+          void save().catch(() => {});
+        return;
+      }
+      if (action === "toggle-view") {
+        canvas.current?.finish();
+        viewOnly(view === "original" ? "crops" : "original");
+        return;
+      }
+      if (imageState !== "ready") return;
+      if (action === "delete") canvas.current?.remove();
+      else if (action === "undo") canvas.current?.undo();
+      else if (action === "redo") canvas.current?.redo();
     };
-    window.addEventListener("keydown", toggle, true);
-    return () => window.removeEventListener("keydown", toggle, true);
-  }, [view, busy, datasetId, songId, pageId, q]);
+    // Run before the canvas listener so a single key creates one history entry.
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [view, busy, dirty, save, imageState, datasetId, songId, pageId, q]);
   useEffect(() => {
     if (view === "original")
       requestAnimationFrame(() => {
@@ -494,7 +500,7 @@ export function LayoutEditor({
             {dirty ? "未保存" : doc?.image.status === "confirmed" ? "已确认" :
               doc?.image.status === "ai_reviewed" ? "AI 已复核" : doc ? "已保存" : ""}
           </span>
-          <AntButton aria-label="保存" disabled={!doc || busy || !dirty} loading={operation.current === "save"}
+          <AntButton aria-label="保存" title="保存 Ctrl/⌘+S" disabled={!doc || busy || !dirty} loading={operation.current === "save"}
             onClick={() => void save().catch(() => {})}>保存</AntButton>
           <AntButton type="primary" aria-label="确认并下一页" disabled={!doc || busy || imageState !== "ready"}
             loading={operation.current === "confirm"} onClick={() => void confirmPage()}>
@@ -605,13 +611,13 @@ export function LayoutEditor({
         </Select>
         <Button onClick={() => canvas.current?.zoom(zoom * 1.25)}>＋</Button>
         <Button onClick={() => canvas.current?.fit()}>适应</Button>
-        <Button title="撤销未保存的编辑 Ctrl/⌘ Z" disabled={!history.undo} onClick={() => canvas.current?.undo()}>
+        <Button title="撤销未保存的编辑 Ctrl/⌘+Z" disabled={!history.undo} onClick={() => canvas.current?.undo()}>
           撤销
         </Button>
-        <Button title="重做 Ctrl/⌘ Shift Z" disabled={!history.redo} onClick={() => canvas.current?.redo()}>
+        <Button title="重做 Ctrl/⌘+Shift+Z 或 Ctrl/⌘+Y" disabled={!history.redo} onClick={() => canvas.current?.redo()}>
           重做
         </Button>
-        <Button className="danger" title="删除选区 Delete / Backspace，可撤销" disabled={!selected} onClick={() => canvas.current?.remove()}>
+        <Button className="danger" title="删除选区 Q / Delete / Backspace，可用 Ctrl/⌘+Z 撤销" disabled={!selected} onClick={() => canvas.current?.remove()}>
           删除框
         </Button>
         </div>
@@ -956,6 +962,10 @@ export function LayoutEditor({
         {doc && view === "crops" && (
           <LayoutCrops
             stateRef={cropState}
+            selected={selected}
+            onSelect={(id) => {
+              if (canvas.current?.selected !== id) canvas.current?.select(id);
+            }}
             doc={doc}
             image={canvas.current?.image as HTMLImageElement | undefined}
             taxonomy={taxonomy}

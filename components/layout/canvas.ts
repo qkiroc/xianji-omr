@@ -70,6 +70,7 @@ export class AnnotationCanvas {
       "keydown",
       (e: any) => {
         if (
+          e.defaultPrevented || e.isComposing || e.keyCode === 229 ||
           ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) ||
           document.querySelector("dialog[open], .ant-modal-root") ||
           e.target.isContentEditable ||
@@ -123,7 +124,7 @@ export class AnnotationCanvas {
             );
           });
         }
-        if (["Delete", "Backspace"].includes(e.key)) {
+        if (!e.repeat && ["Delete", "Backspace"].includes(e.key)) {
           e.preventDefault();
           this.remove();
         }
@@ -134,12 +135,12 @@ export class AnnotationCanvas {
         }
         if (
           ({ v: "select", r: "draw", h: "pan" } as Record<string, string>)[
-            e.key
+            e.key.toLowerCase()
           ]
         )
           this.setMode(
             ({ v: "select", r: "draw", h: "pan" } as Record<string, string>)[
-              e.key
+              e.key.toLowerCase()
             ],
           );
         if (/^[0-6]$/.test(e.key))

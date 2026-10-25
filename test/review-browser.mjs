@@ -118,6 +118,23 @@ try {
   await page.locator(".crop-results").waitFor();
   await assertSelectArrows();
   await page.screenshot({ path: output + "/03-crops.png", fullPage: true });
+  const cropCount = await page.locator(".crop-card").count();
+  for (const modifier of ["Control", "Meta"]) {
+    await page.locator(".crop-card").first().hover();
+    await page.keyboard.press("q");
+    assert.equal(await page.locator(".crop-card").count(), cropCount - 1);
+    await page.locator(".save-status.unsaved").waitFor();
+    assert.equal(await page.locator(".ant-modal").count(), 0);
+    assert.equal((await api("/pages/" + ids[1])).boxes.length, 3, "Q only edits the local JSON");
+    await page.keyboard.press(modifier + "+z");
+    assert.equal(await page.locator(".crop-card").count(), cropCount);
+    await page.locator(".save-status.unsaved").waitFor({ state: "hidden" });
+    await page.keyboard.press(modifier + "+Shift+z");
+    assert.equal(await page.locator(".crop-card").count(), cropCount - 1);
+    await page.keyboard.press(modifier + "+z");
+    assert.equal(await page.locator(".crop-card").count(), cropCount);
+  }
+
   await page.keyboard.press("Tab");
   await page.locator(".stage").waitFor({ state: "visible" });
   assert.equal(await page.locator(".ant-modal").count(), 0, "Switching views does not prompt to leave");
@@ -142,7 +159,8 @@ try {
   await page.locator(".save-status.unsaved").waitFor({ state: "hidden" });
   await page.unroute("**/api/v2/pages/" + ids[1]);
   await page.getByRole("button", { name: "重做", exact: true }).click();
-  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.locator(".stage").focus();
+  await page.keyboard.press("Control+s");
   await page.locator(".save-status.unsaved").waitFor({ state: "hidden" });
   assert.equal((await api("/pages/" + ids[1])).boxes.length, 2);
   assert.equal(f.objects.size, 5);
@@ -175,7 +193,7 @@ try {
     await page.screenshot({ path: output + "/editor-" + viewport.width + ".png", fullPage: true });
   }
   assert.deepEqual(errors, []);
-  console.log("PASS: Chromium list page numbers, reversible deletion, failed-save retention, AI queue confirmation, previous-page return, review counts, split labels, compact rows, centred Tab view switching, card overflow, Select suffix alignment, 1024/390px layout.");
+  console.log("PASS: Chromium list page numbers, reversible deletion, failed-save retention, AI queue confirmation, previous-page return, review counts, split labels, compact rows, cross-platform Q/delete/undo/redo in crops, Ctrl+S save, centred Tab view switching, card overflow, Select suffix alignment, 1024/390px layout.");
  } catch (error) {
   if (page) {
     console.error("Review browser state", await page.evaluate(() => ({
