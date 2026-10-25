@@ -24,13 +24,13 @@ test('独立控制器：任务幂等、并发互斥、固定main/固定命令、
  const options=await base(),calls=[];let release;
  const gate=new Promise(r=>release=r),manager=createDeployer({...options,run:fake(calls,{gate}),secrets:['PASSWORD_PRIVATE']});
  await manager.ready;const id=randomUUID(),first=await manager.submit({requestId:id,grantId});
- assert.equal(first.status,'queued');assert.equal((await manager.submit({requestId:id,grantId})).id,id);
+ assert.equal(first.status,'queued');assert.equal(manager.isBusy(),true);assert.equal((await manager.submit({requestId:id,grantId})).id,id);
  await assert.rejects(manager.submit({requestId:randomUUID(),grantId}),e=>e.status===409&&e.jobId===id);
  await assert.rejects(manager.submit({requestId:randomUUID(),grantId,command:'evil'}),e=>e.status===400);
  release();await manager.idle();const job=await manager.get(id);
- assert.equal(job.status,'succeeded');assert.equal(job.commit,commit);assert.equal(job.logs.length,100);
+ assert.equal(job.status,'succeeded');assert.equal(manager.isBusy(),false);assert.equal(job.commit,commit);assert.equal(job.logs.length,100);
  assert.ok(!JSON.stringify(job).includes('PASSWORD_PRIVATE'));assert.ok(Buffer.byteLength(JSON.stringify(job))<256*1024);
- assert.ok(calls.some(c=>c.bin==='git'&&c.args.join(' ').includes('fetch --no-tags origin main')));
+ assert.ok(calls.some(c=>c.bin==='git'&&c.args.join(' ').includes('fetch --no-tags --no-recurse-submodules origin refs/heads/main:refs/remotes/origin/main')));
  const build=calls.find(c=>c.bin==='bash');assert.ok(build.args.includes('--build-on-ecs'));assert.ok(build.args.includes('--non-interactive'));assert.equal(build.options.env.OMR_DEPLOY_API,'1');
  assert.equal((await manager.submit({requestId:id,grantId})).status,'succeeded');
  assert.equal(calls.filter(c=>c.bin==='bash').length,1);

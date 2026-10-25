@@ -62,7 +62,7 @@ export async function currentState(){
 }
 export function createDeployer({stateDir=STATE,cacheDir=ROOT+'/deploy-source.git',workRoot=ROOT+'/deploy-worktrees',run=command,current=currentState,secrets=[],onIdle=()=>{}}={}){
  stateDir=resolve(stateDir);cacheDir=resolve(cacheDir);workRoot=resolve(workRoot);
- const jobs=join(stateDir,'jobs');let active=null,ready,writing=Promise.resolve(),lastFlush=0;
+ const jobs=join(stateDir,'jobs');let active=null,submitting=0,ready,writing=Promise.resolve(),lastFlush=0;
  const pathFor=id=>{if(!UUID.test(id))throw fault(400,'部署任务ID无效');return join(jobs,id+'.json')};
  const save=job=>{const snapshot=clone(job);writing=writing.catch(()=>{}).then(()=>atomic(pathFor(snapshot.id),snapshot));return writing};
  const get=async id=>{
@@ -103,8 +103,8 @@ export function createDeployer({stateDir=STATE,cacheDir=ROOT+'/deploy-source.git
    const invoke=(bin,args,extra={})=>run(bin,args,{signal,onLine:line=>append(job,line),...extra});
    const origin=await invoke('git',['--git-dir',cacheDir,'remote','get-url','origin']);
    if(!REMOTES.includes(origin.trim()))throw fault(500,'DEPLOY_REMOTE_NOT_ALLOWED');
-   await invoke('git',['--git-dir',cacheDir,'fetch','--no-tags','origin','main']);
-   const commit=(await invoke('git',['--git-dir',cacheDir,'rev-parse','--verify','FETCH_HEAD^{commit}'])).trim();
+   await invoke('git',['--git-dir',cacheDir,'fetch','--no-tags','--no-recurse-submodules','origin','refs/heads/main:refs/remotes/origin/main']);
+   const commit=(await invoke('git',['--git-dir',cacheDir,'rev-parse','--verify','refs/remotes/origin/main^{commit}'])).trim();
    if(!/^[a-f0-9]{40}$/.test(commit))throw fault(500,'DEPLOY_COMMIT_INVALID');
    job.commit=commit;await save(job);
    // This UUID worktree belongs only to this controller; never alter an operator checkout.
@@ -128,6 +128,8 @@ export function createDeployer({stateDir=STATE,cacheDir=ROOT+'/deploy-source.git
  return{
   ready,
   async submit(value){
+   submitting++;
+   try {
    await ready;
    if(!value||Object.keys(value).some(key=>!['requestId','grantId'].includes(key))||!UUID.test(value.requestId||'')||!UUID.test(value.grantId||''))throw fault(400,'部署请求只接受requestId和授权标识');
    try{return await get(value.requestId)}catch(error){if(error.status!==404)throw error;}
@@ -140,7 +142,9 @@ export function createDeployer({stateDir=STATE,cacheDir=ROOT+'/deploy-source.git
    try{await save(job);await atomic(join(stateDir,'latest.json'),{id:job.id})}catch(error){active=null;throw error;}
    setImmediate(()=>void execute(job).catch(()=>{active=null;onIdle()}));
    return clone(job);
+   } finally { submitting--; }
   },
+  isBusy(){return !!active||submitting>0;},
   async get(id){await ready;return get(id)},
   async latest(){await ready;let job=null;try{job=await get(JSON.parse(await readFile(join(stateDir,'latest.json'),'utf8')).id)}catch(error){if(error.code!=='ENOENT')throw error;}return{job,current:await current()};},
   async idle(){await ready;while(active)await new Promise(r=>setTimeout(r,10));await writing;}
@@ -167,7 +171,7 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   if(process.getuid?.()!==0||process.env.LISTEN_FDS!=='1'||Number(process.env.LISTEN_PID)!==process.pid)throw Error('SYSTEMD_SOCKET_REQUIRED');
   const config=JSON.parse(await readFile('/etc/xianji-omr/config.json','utf8'));
   let server;
-  const manager=createDeployer({secrets:secretValues(config),onIdle:()=>setTimeout(()=>{server.close(()=>process.exit(0));server.closeIdleConnections();setTimeout(()=>process.exit(0),5000).unref()},500)});
+  const manager=createDeployer({secrets:secretValues(config),onIdle:()=>setTimeout(()=>{if(manager.isBusy())return;server.close();server.closeAllConnections();process.exit(0)},500)});
   await manager.ready;server=createAgentServer(manager);server.listen({fd:3});
  }catch{console.error('DEPLOY_AGENT_START_FAILED');process.exitCode=1;}
 }
