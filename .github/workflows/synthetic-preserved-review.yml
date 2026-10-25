@@ -36,4 +36,4 @@ jobs:
           sudo apt-get install -y fonts-noto-cjk fonts-arphic-ukai fonts-arphic-uming fonts-liberation
           node .artifacts/synthetic-renderer/node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Read actual pages through CLI and regenerate geometry without platform writes
-        run: node tools/synthetic/review-preserved.mjs
+        run: node tools/synthetic/review-preserved.mjs --geometry-only
