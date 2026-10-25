@@ -138,7 +138,11 @@ try {
   await page.keyboard.press("Tab");
   await page.locator(".stage").waitFor({ state: "visible" });
   assert.equal(await page.locator(".ant-modal").count(), 0, "Switching views does not prompt to leave");
-  const selectTitle = () => page.locator(".box-list button").filter({ hasText: "标题" }).click();
+  const selectTitle = async () => {
+    await page.locator(".stage").focus();
+    await page.keyboard.press("Escape");
+    await page.locator(".box-list button").filter({ hasText: "标题" }).click();
+  };
   await selectTitle();
   await assertSelectArrows();
   await page.locator(".properties textarea").first().focus();
