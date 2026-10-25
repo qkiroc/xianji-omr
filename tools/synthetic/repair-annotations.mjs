@@ -1,7 +1,7 @@
 import {readFile,writeFile,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
-export const ANNOTATION_REVISION='tight-melody-written-key-v1';
+export const ANNOTATION_REVISION='ink-melody-barlines-written-key-v2';
 const canon=v=>JSON.stringify(v,(_,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,x[k]])):x);
 const draft=boxes=>boxes.map(b=>({...b,reviewStatus:'draft'}));
 export async function repairEditionAnnotations({sourceDirectory,profileId,directory,api,datasetId}){
@@ -14,9 +14,15 @@ export async function repairEditionAnnotations({sourceDirectory,profileId,direct
   if(entry.annotationRevision===ANNOTATION_REVISION)continue;
   const local=pages.find(p=>p.pageIndex===entry.pageIndex);if(!local||local.sha256!==entry.sha256)throw Error('Annotation repair would change original pixels');
   const desired=local.annotation,hash=createHash('sha256').update(canon(desired)).digest('hex');
-  if(entry.annotationRepairIntent&&entry.annotationRepairIntent!==hash)throw Error('Annotation repair changed during transaction');
   let value=await api('/api/v2/pages/'+entry.pageId);
   if(value.image.datasetId!==datasetId||value.image.checksum!==entry.sha256)throw Error('Annotation repair image differs');
+  if(entry.annotationRepairIntent&&entry.annotationRepairIntent!==hash){
+   const oldHash=createHash('sha256').update(canon({...desired,boxes:draft(value.boxes)})).digest('hex');
+   if(oldHash!==entry.annotationRepairIntent)throw Error('Annotation repair changed during transaction');
+   if(value.image.status!=='confirmed')value=await api('/api/v2/pages/'+entry.pageId+'/confirm',{version:value.image.version,acknowledged:true,reviewType:'human'});
+   const confirmedHash=createHash('sha256').update(canon({...desired,boxes:draft(value.boxes)})).digest('hex');if(confirmedHash!==oldHash||value.image.status!=='confirmed')throw Error('Prior annotation repair recovery differs');
+   Object.assign(entry,{version:value.image.version,boxCount:value.boxes.length});delete entry.annotationRepairIntent;await save();
+  }
   const matches=()=>canon(draft(value.boxes))===canon(desired.boxes);
   const pristine=value.image.version===entry.version&&value.image.status==='confirmed'&&value.boxes.every(b=>b.reviewStatus==='confirmed');
   if(!pristine&&!(entry.annotationRepairIntent&&matches()))throw Error('Page changed before annotation repair; preserving it');

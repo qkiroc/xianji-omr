@@ -39,3 +39,5 @@ node tools/synthetic/configure-cloud.mjs
 A push to `main` normally runs verification only. A maintainer commit containing `[resume-synthetic]` also resumes production from the newest encrypted checkpoint, using the existing repository Secrets. This permits a deployed repair to continue an interrupted cloud batch.
 
 Annotation repair tightens numbered-notation regions to visible note artwork and omits original-key labels. Existing editions keep their pixels and page IDs; every annotation write is version checked, confirmed, and checkpointed. Untracked original tail pages can be removed only when their filename/checksum matches the original render catalog and their draft or synthetic confirmation state is untouched.
+
+The v2 annotation repair uses actual SVG glyph ink, includes melody barlines and repeat/end marks, and separates only empty crop padding. Real ink intersections stop validation. Six regression songs are rendered in all three editions before any corpus changes. The independent glyph-geometry workflow has no OMR CLI credential and only verifies rendering. Existing production runs finish and save their checkpoint before a queued revision resumes.

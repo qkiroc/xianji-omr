@@ -1,3 +1,4 @@
+import {musicInkBounds,separateMusicPadding} from './music-region-geometry.mjs';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {resolve,join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -12,7 +13,13 @@ export async function installRenderer(root=join(workspace,'.artifacts/synthetic-
  let text="import {renderDocument,stylesForScore,paginateScore,mergeLyricRegions} from '../../tools/synthetic/page-style.mjs';\n"+original.slice(0,start)+stage+original.slice(end);
  // Geometry must include only visible numbered-notation artwork, never lyric fallbacks or hit targets.
  const oldMelody="const melody=union([...row.querySelectorAll('[data-sheet-melody-lane]')].flatMap(el=>leaves(el,'melody')).concat([...row.querySelectorAll('[data-sheet-connections] path')].map(el=>el.getBoundingClientRect())));";
- const newMelody="const melody=union([...row.querySelectorAll('[data-sheet-melody-lane] [data-synth-track=\"melody\"] .sheet-note-art,[data-melody-tuplet],[data-sheet-connections]')].flatMap(el=>[...el.querySelectorAll('path,line,text,circle,ellipse,polygon,polyline')]).filter(el=>!el.closest('[data-melody-lyric],[data-cursor-bar]')&&getComputedStyle(el).display!=='none'&&getComputedStyle(el).visibility!=='hidden').map(el=>el.getBoundingClientRect()));";
+ const newMelody="const musicInk=musicInkBounds(row),melody=musicInk.melody;";
+ text=text.replace('const point=(svg,x,y)=>', 'const musicInkBounds='+musicInkBounds.toString()+';const separateMusicPadding='+separateMusicPadding.toString()+';const point=(svg,x,y)=>');
+ const oldLyric="union(lyricNodes.filter(el=>el.dataset.lyricVerse===verse).map(el=>el.getBoundingClientRect()))";
+ if(!text.includes(oldLyric))throw Error('Lyric geometry stage missing');text=text.replace(oldLyric,"union(musicInk.lyrics.filter(v=>v.verse===verse).map(v=>v.bounds))");
+ text=text.replace("bbox:box(melody)","bbox:box(melody,1)").replace("classKey:'lyrics',bbox:box(r)","classKey:'lyrics',bbox:box(r,1)");
+ text=text.replace('const parent=box(union(', 'separateMusicPadding(children,musicInk,origin.top);const parent=box(union(');
+
  if(!text.includes(oldMelody))throw Error('Melody geometry stage missing');text=text.replace(oldMelody,newMelody);
  text=text.replace("container.querySelectorAll('[data-meta]')","container.querySelectorAll('[data-meta]:not([data-key-kind=\"original\"])')");
  const validation='    regions(p.annotation.boxes,p.width,p.height,';

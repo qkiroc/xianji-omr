@@ -41,7 +41,7 @@ jobs:
           node-version: '22'
           package-manager-cache: false
       - name: Verify notation, encrypted assets and replacement safety
-        run: node --test test/synthetic-annotation-repair.test.mjs test/synthetic-cloud-auth.test.mjs test/synthetic-cloud.test.mjs test/synthetic-accompaniment.test.mjs test/synthetic-layout.test.mjs test/synthetic-replacement.test.mjs
+        run: node --test test/synthetic-music-geometry.test.mjs test/synthetic-annotation-repair.test.mjs test/synthetic-cloud-auth.test.mjs test/synthetic-cloud.test.mjs test/synthetic-accompaniment.test.mjs test/synthetic-layout.test.mjs test/synthetic-replacement.test.mjs
 
   produce:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[resume-synthetic]'))
@@ -91,6 +91,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk fonts-arphic-ukai fonts-arphic-uming fonts-liberation
           node .artifacts/synthetic-renderer/node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Verify melody, lyric and barline geometry across all three editions
+        run: node tools/synthetic/verify-music-geometry.mjs
       - name: Validate first rendered edition
         run: node tools/synthetic/revise-audition.mjs --render --cloud --limit 1
       - name: Repair common editions, repair existing editions, then continue import
