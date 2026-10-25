@@ -330,3 +330,16 @@ test("Focusing a crop selects its Q deletion target without changing view", asyn
   assert.equal(m.routes.length, 0);
   assert.equal(m.requests.filter(r => r.method !== "GET").length, 0);
 });
+
+test("Q resolves the focused crop after undo clears the canvas selection", async t => {
+  const m = await mount(t, { view: "crops" });
+  const preview = () => m.host.querySelector(".crop-preview");
+  await act(async () => preview().dispatchEvent(new window.FocusEvent("focusin", { bubbles: true })));
+  await keypress(preview(), "q");
+  await keypress(m.host.querySelector(".crop-results"), "z", { ctrlKey: true });
+  assert.equal(m.host.querySelector(".crop-card-selected"), null);
+  // Deliberately do not dispatch another focus/hover event.
+  await keypress(preview(), "q");
+  assert.equal(m.host.querySelectorAll(".crop-card").length, 1);
+  assert.ok(m.host.querySelector(".save-status.unsaved"));
+});

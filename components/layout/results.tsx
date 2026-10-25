@@ -158,6 +158,7 @@ export function LayoutCrops({
           return (
             <article
               key={b.id}
+              data-box-id={b.id}
               className={
                 "crop-card " +
                 (compactClasses.has(b.classKey || "") ? "" : "wide") +
@@ -166,6 +167,7 @@ export function LayoutCrops({
               style={{ outline: selected === b.id ? "2px solid" : undefined,
                 outlineColor: category?.color, outlineOffset: 2 }}
               onPointerEnter={() => onSelect(b.id)}
+              onPointerMove={() => onSelect(b.id)}
               onFocusCapture={() => onSelect(b.id)}
             >
               <div className="crop-card-head">

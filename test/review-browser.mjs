@@ -199,6 +199,7 @@ try {
     console.error("Review browser state", await page.evaluate(() => ({
       url: location.href, activeTag: document.activeElement?.tagName,
       events: window.__reviewTabEvents,
+      cropTargets: [...document.querySelectorAll(".crop-card")].map(c => ({ id: c.dataset.boxId, selected: c.classList.contains("crop-card-selected"), hovered: c.matches(":hover") })),
       body: document.body.innerText.slice(0, 3000),
     })).catch(() => ({})));
     console.error("Browser errors", errors);

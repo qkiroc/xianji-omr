@@ -1259,3 +1259,5 @@ label:not([class*="ant-"]) > .ant-select { display: inline-flex; width: 100%; ma
   .review-progress { flex-wrap: wrap; gap: 8px; }
   .review-progress .ant-progress { width: 130px; }
 }
+
+.crop-card:hover { outline: 2px solid; outline-offset: 2px; }

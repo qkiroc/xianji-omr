@@ -458,8 +458,17 @@ export function LayoutEditor({
         return;
       }
       if (imageState !== "ready") return;
-      if (action === "delete") canvas.current?.remove();
-      else if (action === "undo") canvas.current?.undo();
+      if (action === "delete") {
+        if (view === "crops") {
+          // Undo clears canvas selection. Resolve the card under the pointer or
+          // keyboard focus again, including when the pointer has not moved.
+          const target = (event.target as Element | null)?.closest?.<HTMLElement>(".crop-card")
+            || document.querySelector<HTMLElement>(".crop-card:hover");
+          const id = target?.dataset.boxId;
+          if (id) canvas.current?.select(id);
+        }
+        canvas.current?.remove();
+      } else if (action === "undo") canvas.current?.undo();
       else if (action === "redo") canvas.current?.redo();
     };
     // Run before the canvas listener so a single key creates one history entry.
