@@ -126,7 +126,7 @@ node tools/cli/xianji-omr.mjs datasets export "$DATASET_ID" --classes guitar --k
 
 `--classes`省略时导出全部类别。按类别导出最多5000来源页、100000来源框，普通全类别导出仍最多200页、10000框，单次导出临时文件和ZIP均限制512MB；超限会明确报错，不会截断数据。可用 `--input selection.json` 选择批次，内容例如 `{"pageIds":["PAGE_ID"]}`，亦可在JSON内用 `classKeys`指定类别（和`--classes`二选一）。
 
-默认等待打包900秒，`--timeout`支持1–3600秒。进度与快照ID输出到stderr，stdout只输出最终文件路径、校验值及快照ID。已存在的目标文件会在创建快照前拒绝覆盖。超时、退出或失败后，仍可查阅和重试同一冻结快照：
+默认等待打包900秒，`--timeout`支持1–3600秒。进度与快照ID输出到stderr，stdout只输出最终文件路径、校验值及快照ID。已存在的目标文件会在创建快照前拒绝覆盖。超时或退出后，可查询原快照并继续下载；仅状态为failed的快照可重试，重试不会改变冻结的类别和源标注：
 
 ```bash
 node tools/cli/xianji-omr.mjs snapshots get "$SNAPSHOT_ID" --origin "$OMR_ORIGIN"
