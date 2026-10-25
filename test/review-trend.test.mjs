@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import sharp from "sharp";
 import { fixture } from "./fixture.mjs";
 import { cookieFor, grantFor, request, json } from "./cli-helpers.mjs";
-import { withLock, migrate, checkHistory } from "../server/src/migrate.mjs";
+import {SCHEMA, withLock, migrate, checkHistory } from "../server/src/migrate.mjs";
 import { reviewWindow } from "../shared/review-trend.ts";
 
 async function setup(f) {
@@ -107,7 +107,7 @@ test("Schema 8 backfills only eligible historical human confirmations, explicitl
   const before = (await f.pool.query("SELECT id,version,boxes,updated_at FROM omr_images ORDER BY id")).rows;
   await withLock(f.pool, c => migrate(c));
   await withLock(f.pool, c => migrate(c));
-  assert.equal(await checkHistory(f.pool), 9);
+  assert.equal(await checkHistory(f.pool), SCHEMA);
   assert.deepEqual((await f.pool.query("SELECT id,version,boxes,updated_at FROM omr_images ORDER BY id")).rows, before);
   const rows = (await f.pool.query("SELECT page_order,human_reviews FROM omr_images ORDER BY page_order")).rows;
   assert.deepEqual(Object.keys(rows[0].human_reviews), ["2026-01-02"]);

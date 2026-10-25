@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "./fixture.mjs";
 import { cookieFor, grantFor, request, json } from "./cli-helpers.mjs";
-import {
+import {SCHEMA,
   withLock,
   migrate,
   checkHistory,
@@ -32,7 +32,7 @@ test("schema4带7页人工确认/回收站/会话/grant/快照升6，幂等及�
     dump = await backup(f.config, dir);
   await withLock(f.pool, (c) => migrate(c));
   await withLock(f.pool, (c) => migrate(c));
-  assert.equal(await checkHistory(f.pool), 9);
+  assert.equal(await checkHistory(f.pool), SCHEMA);
   assert.deepEqual(
     (await f.pool.query("SELECT * FROM omr_images ORDER BY id")).rows.map(({ human_reviews, ...page }) => page),
     before,
