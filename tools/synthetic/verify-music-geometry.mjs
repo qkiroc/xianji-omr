@@ -10,4 +10,13 @@ try{for(const index of [0,2,15,31,70,120]){const job=plan.jobs[index],source=awa
   for(const page of annotations){const boxes=page.annotation.boxes;if(boxes.some(b=>b.classKey==='key_signature'&&b.metadata?.value?.kind==='original'))throw Error('Original key is annotated');for(const m of boxes.filter(b=>b.classKey==='melody'))for(const l of boxes.filter(b=>b.classKey==='lyrics'&&b.parentSystemId===m.parentSystemId)){if(Math.min(m.x+m.width,l.x+l.width)>Math.max(m.x,l.x)&&Math.min(m.y+m.height,l.y+l.height)>Math.max(m.y,l.y))throw Error('Melody and lyric padding still overlaps');}}
   editions++;pages+=annotations.length;console.log(JSON.stringify({event:'music-geometry-verified',title:job.title,profile:profile.id,style:profile.pluckNotation,pages:annotations.length}));
  }
-}console.log(JSON.stringify({event:'geometry-verification-complete',editions,pages}));}finally{await browser.close();}
+}
+ const historic=await installAccompanimentRenderer(root,{annotationGeometry:'initial'}),historicalRenderer=await import(pathToFileURL(historic.path)),job=plan.jobs.find(j=>j.id==='trial-xiao-xing-yun');
+ if(job){const sourceDirectory=join(batch,job.id),state=await read(join(sourceDirectory,'state.json'));
+  for(const id of ['synth195-02','synth195-03']){const saved=state.profiles.find(p=>p.id===id);if(!saved?.layoutRevision)continue;const base=(await read(join(sourceDirectory,'profiles.json'))).find(p=>p.id===id),profile=accompanimentProfile(base,choices.get(job.id)[id]);
+   await historicalRenderer.renderBatchProfile({source:await read(join(sourceDirectory,'source-schema2.json')),score:await read(join(sourceDirectory,'converted-score.json')),profile,out:join(out,'historical',job.id),browser});
+   const original=await read(join(out,'historical',job.id,id,'annotations.json'));for(const page of saved.pages){const baseline=original.find(p=>p.pageIndex===page.pageIndex);if(!baseline||baseline.sha256!==page.sha256)throw Error('Historical baseline pixels differ from frozen checkpoint');if(!page.annotationRevision&&baseline.annotation.boxes.length!==page.boxCount)throw Error('Historical annotation baseline box count differs');}
+   console.log(JSON.stringify({event:'historical-baseline-verified',title:job.title,profile:id,pages:original.length}));
+  }
+ }
+ console.log(JSON.stringify({event:'geometry-verification-complete',editions,pages}));}finally{await browser.close();}

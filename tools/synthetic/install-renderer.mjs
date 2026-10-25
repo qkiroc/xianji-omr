@@ -5,12 +5,13 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {LAYOUT_REVISION} from './page-style.mjs';
 const workspace=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-export async function installRenderer(root=join(workspace,'.artifacts/synthetic-renderer')){
+export async function installRenderer(root=join(workspace,'.artifacts/synthetic-renderer'),{annotationGeometry='current'}={}){
  const original=await readFile(join(root,'batch-render-profile.mjs'),'utf8');
  const start=original.indexOf('  const contentWidth='),end=original.indexOf('  const geometry=await page.evaluate(',start);
  if(start<0||end<start)throw Error('Verified base renderer stage missing');
  const stage=`  const page=await browser.newPage({viewport:{width:Math.max(1400,profile.pageWidth+40),height:profile.pageHeight+40},deviceScaleFactor:1});\n  await page.setContent(renderDocument(fragment,profile),{waitUntil:'load'});\n  await page.evaluate(()=>document.fonts.ready);\n  const rendered=await page.evaluate(paginateScore,{profile,styles:stylesForScore(profile,source,score.bars.length+1)});\n  await page.evaluate(()=>document.fonts.ready);\n`;
  let text="import {renderDocument,stylesForScore,paginateScore,mergeLyricRegions} from '../../tools/synthetic/page-style.mjs';\n"+original.slice(0,start)+stage+original.slice(end);
+ if(annotationGeometry!=='initial'){
  // Geometry must include only visible numbered-notation artwork, never lyric fallbacks or hit targets.
  const oldMelody="const melody=union([...row.querySelectorAll('[data-sheet-melody-lane]')].flatMap(el=>leaves(el,'melody')).concat([...row.querySelectorAll('[data-sheet-connections] path')].map(el=>el.getBoundingClientRect())));";
  const newMelody="const musicInk=musicInkBounds(row),melody=musicInk.melody;";
@@ -22,12 +23,13 @@ export async function installRenderer(root=join(workspace,'.artifacts/synthetic-
 
  if(!text.includes(oldMelody))throw Error('Melody geometry stage missing');text=text.replace(oldMelody,newMelody);
  text=text.replace("container.querySelectorAll('[data-meta]')","container.querySelectorAll('[data-meta]:not([data-key-kind=\"original\"])')");
+ }
  const validation='    regions(p.annotation.boxes,p.width,p.height,';
  if(!text.includes(validation))throw Error('Verified geometry validator missing');
  text=text.replace(validation,'    p.annotation.boxes=mergeLyricRegions(p.annotation.boxes);\n'+validation);
  text=text.replace('watermarks:rendered.watermarks,pages:','watermarks:rendered.watermarks,layoutRevision:'+JSON.stringify(LAYOUT_REVISION)+',pageStyles:rendered.pageStyles,pages:');
  text=text.replace("container.querySelectorAll('.watermark,.graphic-watermark').length","container.querySelectorAll('.page-decoration text,.page-decoration g').length");
- const path=join(root,'batch-render-randomized.mjs');await writeFile(path,text);
+ const path=join(root,annotationGeometry==='initial'?'batch-render-randomized-initial.mjs':'batch-render-randomized.mjs');await writeFile(path,text);
  const batch=join(root,'audition-195-batch');await mkdir(batch,{recursive:true});
  await writeFile(join(batch,'PAUSE.json'),JSON.stringify({reason:'Regenerate existing and remaining pages using '+LAYOUT_REVISION,createdAt:new Date().toISOString()},null,2));
  const workerFile=join(root,'batch-worker.mjs');let worker=await readFile(workerFile,'utf8');

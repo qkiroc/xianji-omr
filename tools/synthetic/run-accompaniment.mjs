@@ -1,3 +1,4 @@
+import {reconcileCompletedEdition} from './reconcile-completed.mjs';
 import {ANNOTATION_REVISION,repairEditionAnnotations} from './repair-annotations.mjs';
 import {readFile,writeFile,mkdir,rename,open,unlink} from 'node:fs/promises';
 import {join,resolve,dirname} from 'node:path';
@@ -66,10 +67,6 @@ async function finishPendingLegacy(batch,sourcePlan,conn){
  }
  if(recovered)log({event:'interrupted-editions-recovered',editions:recovered});
 }
-async function verifyCompletedEdition(batch,item,sourcePlan,api){
- const state=await readJSON(join(batch,item.sourceId,'state.json')),profile=state?.profiles.find(p=>p.id===item.profileId);if(!profile?.pages?.length||profile.layoutRevision!==ACCOMPANIMENT_REVISION)throw Error('Completed edition checkpoint is missing');
- for(const page of profile.pages){if(page.annotationRepairIntent)continue;const saved=await api('/api/v2/pages/'+page.pageId);if(saved.image.datasetId!==sourcePlan.datasetId||saved.image.checksum!==page.sha256||saved.image.version!==page.version||saved.image.status!=='confirmed'||saved.boxes.length!==page.boxCount||saved.boxes.some(b=>b.reviewStatus!=='confirmed'))throw Error('Completed remote edition was changed; preserving it');}
-}
 async function writePreviews(root,batch,out,manifest,installed,songId){
  const first=manifest.queue.find(q=>!songId||q.sourceId===songId);if(!first)throw Error('Unknown song');
  const source=await readJSON(join(batch,first.sourceId,'source-schema2.json')),score=await readJSON(join(batch,first.sourceId,'converted-score.json')),base=first.profile;
@@ -112,14 +109,23 @@ export async function runAccompaniment(args=process.argv.slice(2)){
   const renderer=render?await import(pathToFileURL(installed.path)):null,limit=Number(option('--limit',Infinity));if(!(limit>0))throw Error('--limit must be positive');
   report.status='running';delete report.failure;let phase;
   for(const item of manifest.queue){
-   if(option('--song')&&item.sourceId!==option('--song'))continue;const key=item.sourceId+':'+item.profileId,completed=report.completed.find(p=>p.key===key);if(completed&&(upload||flag('--cloud'))){if(completed.rendererSha256!==installed.sha256&&!flag('--cloud'))throw Error('An uploaded edition uses another renderer; keep this revision frozen');if(flag('--cloud')&&upload){await verifyCompletedEdition(batch,item,sourcePlan,conn.api);
+   if(option('--song')&&item.sourceId!==option('--song'))continue;const key=item.sourceId+':'+item.profileId,completed=report.completed.find(p=>p.key===key);if(completed&&(upload||flag('--cloud'))){if(completed.rendererSha256!==installed.sha256&&!flag('--cloud'))throw Error('An uploaded edition uses another renderer; keep this revision frozen');if(flag('--cloud')&&upload){
+     report.current={sourceId:item.sourceId,title:item.title,profile:item.profileId,phase:'verify-completed'};await atomic(reportFile,report);
+     const reconciled=await reconcileCompletedEdition({sourceDirectory:join(batch,item.sourceId),item,datasetId:sourcePlan.datasetId,api:conn.api,revision:ACCOMPANIMENT_REVISION,log,baselineAnnotations:async()=>{
+      if(!renderer)throw Error('Use --run for historical annotation comparison');
+      const historic=await installAccompanimentRenderer(root,{annotationGeometry:'initial'}),historicalRenderer=await import(pathToFileURL(historic.path)),sourceDirectory=join(batch,item.sourceId),baselineOut=join(out,'historical-baselines',item.sourceId);
+      await historicalRenderer.renderBatchProfile({source:await readJSON(join(sourceDirectory,'source-schema2.json')),score:await readJSON(join(sourceDirectory,'converted-score.json')),profile:item.profile,out:baselineOut,browser});
+      return readJSON(join(baselineOut,item.profileId,'annotations.json'));
+     }});
+     report.preservedPages=[...(report.preservedPages||[]).filter(p=>p.sourceId!==item.sourceId||p.profile!==item.profileId),...reconciled.preserved.map(p=>({...p,sourceId:item.sourceId}))];await atomic(reportFile,report);
     if(completed.annotationRevision!==ANNOTATION_REVISION){
      if(Date.now()-startedAt>timeBudget){report.status='paused';await atomic(reportFile,report);return;}
      const job=sourcePlan.jobs.find(j=>j.id===item.sourceId),sourceDirectory=join(batch,job.id),directory=join(out,job.id,item.profileId);
      if(!renderer)throw Error('Use --run to repair completed annotations');
      await renderer.renderBatchProfile({source:await readJSON(join(sourceDirectory,'source-schema2.json')),score:await readJSON(join(sourceDirectory,'converted-score.json')),profile:item.profile,out:join(out,job.id),browser});
-     await repairEditionAnnotations({sourceDirectory,profileId:item.profileId,directory,api:conn.api,datasetId:sourcePlan.datasetId});
-     completed.annotationRevision=ANNOTATION_REVISION;await atomic(reportFile,report);log({event:'annotations-repaired',title:item.title,profile:item.profileId,completedEditions:report.completed.length});
+     const repair=await repairEditionAnnotations({sourceDirectory,profileId:item.profileId,directory,api:conn.api,datasetId:sourcePlan.datasetId});
+     report.preservedPages=[...(report.preservedPages||[]).filter(p=>p.sourceId!==item.sourceId||p.profile!==item.profileId),...repair.preserved.map(p=>({...p,title:item.title,profile:item.profileId,sourceId:item.sourceId}))];
+     completed.annotationRevision=ANNOTATION_REVISION;await atomic(reportFile,report);log({event:repair.preserved.length?'annotations-repaired-with-preserved-pages':'annotations-repaired',title:item.title,profile:item.profileId,preservedPages:repair.preserved.length,completedEditions:report.completed.length});
     }
    }continue;}if(done>=limit||Date.now()-startedAt>timeBudget){report.status='paused';report.current=null;await atomic(reportFile,report);log({event:'paused',reason:'limit',completedEditions:report.completed.length});return;}
    if(phase!==item.phase){phase=item.phase;log({event:'phase',phase,total:manifest.queue.filter(q=>q.phase===phase).length});}
@@ -129,10 +135,10 @@ export async function runAccompaniment(args=process.argv.slice(2)){
     const transaction=await readJSON(join(directory,'replacement-state.json'));if(transaction?.newPages?.length)throw Error('Renderer changed after this edition started uploading; preserving its checkpoint');
     result=await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});result.rendererSha256=installed.sha256;await atomic(resultFile,result);
    }
-   if(upload){if(!result||!resumeExisting&&result.rendererSha256!==installed.sha256)throw Error('Current revision not rendered: '+key);const state=await uploadEdition({plan:sourcePlan,job,profile,directory,result,...conn,sourceDirectory,backupDirectory:join(out,'previous-states'),revision:ACCOMPANIMENT_REVISION,renameSong:true});if(resumeExisting){await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});}await repairEditionAnnotations({sourceDirectory,profileId:profile.id,directory,api:conn.api,datasetId:sourcePlan.datasetId});report.completed.push({annotationRevision:ANNOTATION_REVISION,key,phase,style:profile.pluckNotation,songId:state.songId,pages:state.newPages.length,rendererSha256:result.rendererSha256});}
+   if(upload){if(!result||!resumeExisting&&result.rendererSha256!==installed.sha256)throw Error('Current revision not rendered: '+key);const state=await uploadEdition({plan:sourcePlan,job,profile,directory,result,...conn,sourceDirectory,backupDirectory:join(out,'previous-states'),revision:ACCOMPANIMENT_REVISION,renameSong:true});if(resumeExisting){await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});}const repair=await repairEditionAnnotations({sourceDirectory,profileId:profile.id,directory,api:conn.api,datasetId:sourcePlan.datasetId});report.preservedPages=[...(report.preservedPages||[]),...repair.preserved.map(p=>({...p,title:item.title,profile:item.profileId,sourceId:item.sourceId}))];report.completed.push({annotationRevision:ANNOTATION_REVISION,key,phase,style:profile.pluckNotation,songId:state.songId,pages:state.newPages.length,rendererSha256:result.rendererSha256});}
    done++;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:upload?'replaced':'rendered',phase,title:job.title,profile:profile.id,style:profile.pluckNotation,pages:result.pageCount,crossPlucks:result.accompanimentCoverage?.renderedCrossPlucks,completedEditions:report.completed.length});
   }
-  report.status=option('--song')?'selection-complete':'complete';report.current=null;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:'complete',status:report.status,editions:report.completed.length,pages:report.completed.reduce((n,p)=>n+p.pages,0)});
+  report.status=option('--song')?'selection-complete':report.preservedPages?.length?'complete-with-preserved-pages':'complete';report.current=null;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:'complete',status:report.status,editions:report.completed.length,pages:report.completed.reduce((n,p)=>n+p.pages,0)});
  }catch(error){report.status='blocked';report.failure={message:error.message,status:error.status,at:new Date().toISOString()};await atomic(reportFile,report);throw error;}
  finally{await browser?.close();await lock.close();await unlink(lockPath).catch(()=>{});}
 }

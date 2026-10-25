@@ -26,8 +26,8 @@ export async function buildAccompanimentBundle(root){
  await build({entryPoints:[entry],bundle:true,platform:'node',format:'cjs',jsx:'automatic',define:{__SYNTH_STYLE__:'globalThis.__SYNTH_STYLE__'},alias:{'@/components/ui/button':join(root,'reference-styled-source/button-stub.tsx'),'lucide-react':join(root,'reference-styled-source/lucide-stub.tsx')},plugins:[{name:'cross-accompaniment',setup(build){build.onLoad({filter:/notation-eight\.tsx$/},async args=>({contents:crossNotationSource(await readFile(args.path,'utf8')),loader:'tsx',resolveDir:dirname(args.path)}));}}],outfile:bundle,logLevel:'silent'});
  return bundle;
 }
-export async function installAccompanimentRenderer(root){
- const legacy=await installRenderer(root),bundle=await buildAccompanimentBundle(root);
+export async function installAccompanimentRenderer(root,options={}){
+ const legacy=await installRenderer(root,options),bundle=await buildAccompanimentBundle(root);
  let text=await readFile(legacy.path,'utf8');
  text="import {applyAccompanimentNotation} from '../../tools/synthetic/accompaniment.mjs';\n"+text;
  if(!text.includes("bundle=join(root,'batch-ssr.cjs')"))throw Error('Legacy bundle selector missing');
@@ -37,7 +37,7 @@ export async function installAccompanimentRenderer(root){
  text=text.replace('layoutRevision:'+JSON.stringify(LAYOUT_REVISION),'layoutRevision:'+JSON.stringify(ACCOMPANIMENT_REVISION)+',accompanimentCoverage:{...accompaniment.coverage,...pluckGlyphs}');
  text=text.replace('  const strumCoverage=await page.evaluate(',`  const pluckGlyphs=await page.evaluate(()=>({renderedCrossPlucks:document.querySelectorAll('[data-pluck-cross]').length,renderedArrowOnlyStrums:document.querySelectorAll('[data-arrow-only="true"]').length}));\n  if(pluckGlyphs.renderedCrossPlucks!==accompaniment.coverage.crossPlucks)throw Error('Chord pluck crosses missing from rendered score');\n  const strumCoverage=await page.evaluate(`);
  text=text.replace('const fragment=require(bundle);',"const fragment=require(bundle);const loaded=require.cache[bundle];if(loaded?.parent)loaded.parent.children=loaded.parent.children.filter(child=>child!==loaded);delete require.cache[bundle];");
- const path=join(root,'batch-render-accompaniment.mjs');await writeFile(path,text);
+ const path=join(root,options.annotationGeometry==='initial'?'batch-render-accompaniment-initial.mjs':'batch-render-accompaniment.mjs');await writeFile(path,text);
  const sha256=createHash('sha256').update(text).update(await readFile(bundle)).update(await readFile(new URL('./page-style.mjs',import.meta.url))).update(await readFile(new URL('./accompaniment.mjs',import.meta.url))).digest('hex');
  return{path,bundle,revision:ACCOMPANIMENT_REVISION,sha256};
 }
