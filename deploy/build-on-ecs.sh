@@ -52,7 +52,11 @@ echo '阶段：受限源码构建（768MiB RAM、512MiB Node堆、单worker、50
 # MemoryMax maps to memory.limit_in_bytes on cgroup v1, memory.max on v2.
 # MemorySwapMax is not relied upon: v1 kernels may not implement swap accounting.
 # No unbounded fallback if the transient build unit cannot start.
-systemd-run --quiet --wait --pipe --collect --service-type=exec \
+binding=()
+if [[ ${OMR_DEPLOY_API:-} == 1 ]]; then
+ binding+=(--property=BindsTo=xianji-omr-deploy.service --property=After=xianji-omr-deploy.service)
+fi
+systemd-run "${binding[@]}" --quiet --wait --pipe --collect --service-type=exec \
  --unit="$unit" \
  --property=MemoryAccounting=yes --property=MemoryMax=768M \
  --property=CPUAccounting=yes --property=CPUQuota=50% --property=Nice=15 \

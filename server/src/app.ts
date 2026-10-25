@@ -1,3 +1,4 @@
+import { registerPlatformDeployment } from "./platform-deployment.ts";
 import { pageRecord } from "./pages.ts";
 import { transaction, datasetRecord, songRecord } from "./datasets.ts";
 import { identities, hasAuthorization } from "./identity.ts";
@@ -51,6 +52,7 @@ export function createApp({
   staticDir,
   release = "development",
   webHandler,
+  deploymentSend,
 }: any) {
   const app = express();
   app.disable("x-powered-by");
@@ -142,6 +144,7 @@ export function createApp({
   const identity = identities({ pool, config });
   registerCliAuth(app, { pool, config, identity });
   app.use("/api", identity.business);
+  registerPlatformDeployment(app, {send: deploymentSend});
   app.get("/api/session", (req: any, res: any) =>
     res.json({ username: config.username }),
   );

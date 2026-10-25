@@ -104,6 +104,9 @@ export function CliAuthorize() {
             只有明确点击授权后CLI才能获得专用可撤销凭证，有效期{info.tokenDays}
             天。CLI不读取浏览器Cookie。
           </p>
+          {info.scopes.includes("platform:deploy") && (
+            <p className="security-notice">本次包含平台部署权限：允许ECS拉取main、执行构建和数据库迁移、重启平台。请仅授权自己使用的CLI。</p>
+          )}
           <Form
             method="POST"
             action={"/api/cli-auth/requests/" + id + "/decision"}

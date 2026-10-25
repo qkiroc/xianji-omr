@@ -1,0 +1,10 @@
+[Unit]
+Description=Xianji OMR local deployment control socket
+[Socket]
+ListenStream=/run/xianji-omr-deploy.sock
+SocketUser=root
+SocketGroup=xianji-omr
+SocketMode=0660
+RemoveOnStop=true
+[Install]
+WantedBy=sockets.target

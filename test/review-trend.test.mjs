@@ -107,7 +107,7 @@ test("Schema 8 backfills only eligible historical human confirmations, explicitl
   const before = (await f.pool.query("SELECT id,version,boxes,updated_at FROM omr_images ORDER BY id")).rows;
   await withLock(f.pool, c => migrate(c));
   await withLock(f.pool, c => migrate(c));
-  assert.equal(await checkHistory(f.pool), 8);
+  assert.equal(await checkHistory(f.pool), 9);
   assert.deepEqual((await f.pool.query("SELECT id,version,boxes,updated_at FROM omr_images ORDER BY id")).rows, before);
   const rows = (await f.pool.query("SELECT page_order,human_reviews FROM omr_images ORDER BY page_order")).rows;
   assert.deepEqual(Object.keys(rows[0].human_reviews), ["2026-01-02"]);

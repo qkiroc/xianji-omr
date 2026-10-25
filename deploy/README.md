@@ -1,19 +1,24 @@
 # ECS 一键部署（独立 xianji-omr）
 
-> 当前为schema8（新增人工审核日期记录；历史非合成确认页以更新时间回填为估算，不改原标注内容），删除语义已改为不可恢复级联清理。升级前核对新增OSS版本查询/删除权限；见[永久删除说明](../docs/permanent-deletion.md)。以下旧schema/软删除章节仅为历史说明，恢复入口及相关旧接口已停用。升级不自动清空历史回收数据。
+> 当前为schema9（新增独立platform:deploy授权；保留schema8人工审核日期记录），删除语义已改为不可恢复级联清理。升级前核对新增OSS版本查询/删除权限；见[永久删除说明](../docs/permanent-deletion.md)。以下旧schema/软删除章节仅为历史说明，恢复入口及相关旧接口已停用。升级不自动清空历史回收数据。
 
-## 本地 CLI 升级（无需进入 ECS 终端）
+## CLI 请求平台，由 ECS 部署
 
-ECS 已完成首次配置后，可在 Windows/macOS/Linux 本机通过 SSH 密钥发起升级：
+本版本新增 POST /api/platform/deployments 和任务查询接口。CLI仅携带已有授权请求平台；ECS独立部署控制器执行固定仓库main的git fetch、冻结commit、创建临时worktree，再运行既有 deploy.sh --build-on-ecs --non-interactive。构建、备份、幂等迁移、原子切换和健康检查流程保留。
+
+首次启用需要按原方式升级本版本一次，正常部署成功后自动安装 /opt/xianji-omr/deployer/agent.mjs、xianji-omr-deploy.socket 和 xianji-omr-deploy.service。应用服务仍为普通用户，无sudo；只有本机group可连接的Unix socket，没有新增公网管理端口。控制器与平台服务分离，平台重启不会终止部署。升级控制器文件不会重启正在执行的任务；任务结束后控制器安全重载。
 
 ```bash
-node tools/cli/xianji-omr.mjs platform deploy --host omr-ecs --artifact ./release.tar.gz
-node tools/cli/xianji-omr.mjs platform status --host omr-ecs
+# 本地首次授权部署权限
+node tools/cli/xianji-omr.mjs auth --deploy --origin https://omr.example.com
+# 后续直接部署，无需登录ECS
+node tools/cli/xianji-omr.mjs platform deploy --wait --origin https://omr.example.com
+node tools/cli/xianji-omr.mjs platform status --origin https://omr.example.com
 ```
 
-`omr-ecs` 是本机 SSH config 别名，也可填写 `root@ECS地址`。需要已核验的主机指纹、密钥/agent，以及 root 或免密 sudo。部署包及旁置 SHA256 来自 GitHub Actions 的 **Build ECS release package** 附件；不需要ECS拉取源码或本地npm安装。CLI自动双端校验、上传和执行既有备份/迁移/健康检查流程。`--dry-run`可仅校验本地包。完整参数、首次准备和断线处理见 [CLI说明](../tools/cli/README.md#从本地-cli-部署平台060)。
+ECS必须具备非交互GitHub拉取权限、依赖源网络，以及既有内存/磁盘要求。控制器源码缓存 /opt/xianji-omr/deploy-source.git 由root管理，默认远端为本仓库HTTPS；初次从本仓库SSH检出部署时复用相同远端地址。私有仓库使用root已有Git授权；不向接口传入凭据或自定义命令。首次产物模式安装时默认HTTPS，如需SSH，可由管理员将该专用cache的origin设为 git@github.com:qkiroc/xianji-omr.git。其他仓库地址会被拒绝。
 
-部署脚本增加 `--artifact FILE --sha256 SHA --commit COMMIT --non-interactive`，用于CLI上传的独立暂存目录：commit必须匹配包内清单；无需Git检出，必须已有应用托管标记和配置，缺失即停止。手工源码构建及原有产物部署方式继续可用。
+任务和最近100行脱敏日志位于 /var/lib/xianji-omr-deploy，root权限。同一requestId幂等、不同任务并发返回409。CLI中断不取消任务；可通过 platform status/logs JOB_UUID 查询。完整API、授权和错误处理见 [CLI文档](../tools/cli/README.md#通过平台-api-部署070schema9)。
 
 ## ECS 单行源码构建部署
 

@@ -4,7 +4,7 @@ set -Eeuo pipefail
 runtime=/opt/xianji-omr/runtime
 install -d -m 755 "$runtime"
 work=$(mktemp -d "$runtime/bootstrap-XXXXXXXX")
-dnf install -y curl tar xz bzip2 make gcc openssl-devel zlib-devel readline-devel perl bison flex m4 util-linux iproute
+dnf install -y git curl tar xz bzip2 make gcc openssl-devel zlib-devel readline-devel perl bison flex m4 util-linux iproute
 fetch() { curl --fail --location --proto '=https' --tlsv1.2 --retry 2 "$1" -o "$2"; }
 verify() { local archive=$1 manifest=$2 name=$3 expected; expected=$(awk -v n="$name" '$2==n||$2=="*"n {print $1}' "$manifest"); [[ $expected =~ ^[a-f0-9]{64}$ ]] || return 1; printf '%s  %s\n' "$expected" "$archive" | sha256sum --check --status; }
 if [[ ! -x $runtime/node/bin/node ]]; then

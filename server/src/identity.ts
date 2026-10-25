@@ -5,7 +5,7 @@ export const hasAuthorization = (req: any) =>
   !!req.rawHeaders?.some(
     (h: any, i: any) => i % 2 === 0 && h.toLowerCase() === "authorization",
   );
-export const ALL_SCOPES = ["data:read", "data:write", "data:confirm"];
+export const ALL_SCOPES = ["data:read", "data:write", "data:confirm", "platform:deploy"];
 export function identities({ pool, config }: any) {
   const cookie = async (req: any, res: any, next: any) => {
     try {
@@ -64,6 +64,11 @@ export function identities({ pool, config }: any) {
   };
   const business = (req: any, res: any, next: any) => {
     const check = () => {
+      if (/^\/platform\/deployments(?:\/|$)/.test(req.path)) {
+        if (req.identity.kind !== "bearer" || !req.identity.scopes.includes("platform:deploy"))
+          return res.status(403).json({error: "需要单独授权platform:deploy，请运行CLI auth --deploy"});
+        return next();
+      }
       if (req.path.endsWith("/review")) {
         if (
           !req.identity.scopes.some((s: any) =>

@@ -74,6 +74,7 @@ else
  fi
 fi
 printf '%s\n' "$version" > "$release/server/RELEASE"
+printf '%s\n' "$commit" > "$release/server/COMMIT"
 chmod -R a+rX "$release"
 echo '阶段：首次私密配置或复用配置（提示直接显示在终端，密码隐藏）'
 if [[ $non_interactive == true ]]; then
@@ -88,4 +89,5 @@ systemctl daemon-reload
 echo '阶段：数据库部署锁、备份、幂等迁移、原子切换与健康检查'
 node "$release/server/deploy.mjs" "$release"
 systemctl enable xianji-omr.service
+bash "$release/deploy/install-api-deployer.sh" "$release/deploy" "$repo"
 echo '部署成功。访问地址以 /etc/xianji-omr/config.json 中 origin 为准。未改防火墙/安全组/白名单。'

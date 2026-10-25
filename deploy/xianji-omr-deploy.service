@@ -1,0 +1,22 @@
+[Unit]
+Description=Xianji OMR deployment controller
+Requires=xianji-omr-deploy.socket
+After=network-online.target xianji-omr-deploy.socket
+Wants=network-online.target
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=PATH=/opt/xianji-omr/runtime/node/bin:/opt/xianji-omr/runtime/postgresql/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/root
+Environment=GIT_TERMINAL_PROMPT=0
+ExecStart=/opt/xianji-omr/runtime/node/bin/node /opt/xianji-omr/deployer/agent.mjs
+Restart=always
+RestartSec=1
+TimeoutStopSec=30
+KillMode=control-group
+UMask=0077
+MemoryMax=256M
+TasksMax=256
+StandardOutput=journal
+StandardError=journal
