@@ -62,6 +62,7 @@ export function createPlatform(deps: any) {
         createdAt: r.created_at,
         stats: r.frozen.stats,
         warnings: r.frozen.warnings,
+        selection: r.frozen.selection,
         datasetFingerprint: r.manifest?.datasetFingerprint,
         artifacts: r.artifacts
           ? Object.fromEntries(
@@ -78,9 +79,26 @@ export function createPlatform(deps: any) {
     res.status(202).json({
       id: await exporter.launch(req.params.datasetId, null, {
         pageIds: req.body.pageIds,
+        classKeys: req.body.classKeys,
+        artifactKinds: req.body.artifactKinds,
       }),
     }),
   );
+  router.get("/snapshots/:snapshotId", async (req: any, res: any) => {
+    need(ID.test(req.params.snapshotId), "快照ID无效");
+    const snapshot = (await pool.query(
+      "SELECT id,dataset_id,status,progress,error,frozen,artifacts FROM omr_snapshots WHERE id=$1",
+      [req.params.snapshotId],
+    )).rows[0];
+    need(snapshot, "快照不存在", 404);
+    res.json({
+      id: snapshot.id, datasetId: snapshot.dataset_id, status: snapshot.status,
+      progress: snapshot.progress, error: snapshot.error, stats: snapshot.frozen.stats,
+      selection: snapshot.frozen.selection,
+      artifacts: snapshot.artifacts ? Object.fromEntries(Object.entries(snapshot.artifacts).map(([kind, value]: any) =>
+        [kind, { bytes: value.bytes, checksum: value.checksum }])) : null,
+    });
+  });
   router.post("/snapshots/:snapshotId/retry", async (req: any, res: any) => {
     need(ID.test(req.params.snapshotId), "快照ID无效");
     res
@@ -100,8 +118,9 @@ export function createPlatform(deps: any) {
       )
     ).rows[0];
     need(r?.status === "ready", "快照尚未准备好，不能下载", 409);
-    const asset = r.artifacts[req.params.kind],
-      stream = await storage.getStream(asset.key);
+    const asset = r.artifacts[req.params.kind];
+    need(asset, "此快照未生成该类型的导出包", 404);
+    const stream = await storage.getStream(asset.key);
     res.type("application/zip").set({
       "Content-Disposition": `attachment; filename="${req.params.snapshotId}-${req.params.kind}.zip"`,
       "Content-Length": String(asset.bytes),

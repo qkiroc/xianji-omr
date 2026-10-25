@@ -10,7 +10,14 @@ def validate(path):
         names=z.namelist();assert len(names)==len(set(names)), 'duplicate ZIP paths'
         assert all(not n.startswith('/') and '..' not in n.split('/') for n in names),'unsafe ZIP path'
         m=json.loads(z.read('manifest.json'));assert m['taxonomyVersion'] in ['layout-v1','layout-v2'] and m['schemaVersion']==2
-        CATEGORIES=BASE_CATEGORIES+(['title','performer','time_signature','key_signature','tempo','capo'] if m['taxonomyVersion']=='layout-v2' else [])
+        FULL_CATEGORIES=BASE_CATEGORIES+(['title','performer','time_signature','key_signature','tempo','capo'] if m['taxonomyVersion']=='layout-v2' else [])
+        selection=m.get('exportSelection',{});selected=selection.get('classKeys')
+        if selected is not None:
+            assert selected and len(selected)==len(set(selected)) and all(k in FULL_CATEGORIES for k in selected)
+            assert selected==[k for k in FULL_CATEGORIES if k in selected],'canonical category order'
+        CATEGORIES=[k for k in FULL_CATEGORIES if selected is None or k in selected]
+        if selected is not None:
+            assert [(c['sourceId'],c['sourceCocoId']) for c in m['categories']]==[(FULL_CATEGORIES.index(k),FULL_CATEGORIES.index(k)+1) for k in CATEGORIES]
         assert [(c['id'],c['key'],c['cocoId']) for c in m['categories']]==[(i,k,i+1) for i,k in enumerate(CATEGORIES)]
         for name,expected in m['fileChecksums'].items():
             h=hashlib.sha256()
@@ -27,17 +34,22 @@ def validate(path):
                 key=source['songGroupKey'];assert groups.get(key,split)==split,'song split leakage';groups[key]=split;assert song_map[source['songId']]['split']==split
             boxes={b['id']:b for b in image['boxes']};assert len(boxes)==len(image['boxes'])
             assert image['pageType'] in ['music','negative'];assert bool(boxes)==(image['pageType']=='music')
-            for b in boxes.values():
-                assert b['classKey'] in CATEGORIES
+            contexts={b['id']:b for b in image.get('contextBoxes',[])}
+            assert not (set(contexts)&set(boxes)),'context duplicates selected regions'
+            assert all(b['classKey']=='system' and any(c['parentSystemId']==b['id'] for c in boxes.values()) for b in contexts.values())
+            assert all(b['classKey'] in CATEGORIES for b in boxes.values()),'unselected training label'
+            geometry={**contexts,**boxes}
+            for b in geometry.values():
+                assert b['classKey'] in FULL_CATEGORIES
                 assert all(type(b[k])==int for k in ['x','y','width','height','readingOrder'])
                 assert b['x']>=0 and b['y']>=0 and b['width']>0 and b['height']>0 and b['x']+b['width']<=w and b['y']+b['height']<=h
                 if b['parentSystemId']:
-                    p=boxes[b['parentSystemId']];assert p['classKey']=='system';assert b['x']>=p['x'] and b['y']>=p['y'] and b['x']+b['width']<=p['x']+p['width'] and b['y']+b['height']<=p['y']+p['height']
+                    p=geometry[b['parentSystemId']];assert p['classKey']=='system';assert b['x']>=p['x'] and b['y']>=p['y'] and b['x']+b['width']<=p['x']+p['width'] and b['y']+b['height']<=p['y']+p['height']
                 elif b['classKey'] not in ['system','chord_marks','title','performer','time_signature','key_signature','tempo','capo']:raise AssertionError('missing parent')
         assert sum(len(i['aliases']) for i in native)==m['stats']['sourcePages']
         assert len(native)==m['stats']['uniqueImages'];assert sum(len(i['boxes']) for i in native)==m['stats']['uniqueBoxes']
         if m['artifact']=='detection':
-            coco=json.loads(z.read('annotations.coco.json'));assert [c['id'] for c in coco['categories']]==list(range(1,len(CATEGORIES)+1));assert len(coco['images'])==len(native)
+            coco=json.loads(z.read('annotations.coco.json'));assert [c['id'] for c in coco['categories']]==list(range(1,len(CATEGORIES)+1));assert [c['name'] for c in coco['categories']]==CATEGORIES;assert len(coco['images'])==len(native)
             assert json.loads(z.read('annotations.native.json'))==native
             for image in native:
                 w=image['coordinate']['working']['width'];h=image['coordinate']['working']['height'];lines=z.read(f"labels/{image['split']}/{image['id']}.txt").decode().splitlines();assert len(lines)==len(image['boxes'])

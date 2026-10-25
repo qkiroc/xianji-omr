@@ -50,6 +50,7 @@ const reviewStates = [
 ] as const;
 const splitLabels = { train: "训练集", val: "验证集", test: "测试集" };
 interface Snapshot {
+  artifacts?: Record<string, { bytes: number; checksum: string }> | null;
   id: string;
   status: string;
   stats: { sourcePages: number; uniqueImages: number };
@@ -509,13 +510,13 @@ export function SongList({ datasetId }: { datasetId: string }) {
                 </b>
                 {s.status === "ready" && (
                   <p>
-                    <a href={"/api/v2/snapshots/" + s.id + "/detection"}>
+                    {s.artifacts?.detection && <a href={"/api/v2/snapshots/" + s.id + "/detection"}>
                       整页检测包
-                    </a>{" "}
-                    ·{" "}
-                    <a href={"/api/v2/snapshots/" + s.id + "/crops"}>
+                    </a>}
+                    {s.artifacts?.detection && s.artifacts?.crops && " · "}
+                    {s.artifacts?.crops && <a href={"/api/v2/snapshots/" + s.id + "/crops"}>
                       裁片与来源映射
-                    </a>
+                    </a>}
                   </p>
                 )}
                 {s.error && <ErrorToast>{s.error}</ErrorToast>}

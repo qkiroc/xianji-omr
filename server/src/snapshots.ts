@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { exportSelection, selectedBoxes } from "./export-selection.ts";
 import {
   need,
   ID,
@@ -14,9 +15,12 @@ import { transaction, datasetRecord } from "./datasets.ts";
 export async function freezeSnapshot(
   pool: any,
   datasetId: any,
-  { pageIds }: any = {},
+  { pageIds, classKeys, artifactKinds }: any = {},
 ) {
   need(ID.test(datasetId), "数据集ID无效");
+  const selectionOptions = exportSelection(classKeys, artifactKinds);
+  classKeys = selectionOptions.classKeys;
+  const maxPages = classKeys ? 5000 : 200, maxBoxes = classKeys ? 100000 : 10000;
   return transaction(
     pool,
     async (c: any) => {
@@ -25,12 +29,20 @@ export async function freezeSnapshot(
         pageIds === undefined ||
           (Array.isArray(pageIds) &&
             pageIds.length > 0 &&
-            pageIds.length <= 200 &&
+            pageIds.length <= maxPages &&
             new Set(pageIds).size === pageIds.length &&
             pageIds.every((id: any) => ID.test(id))),
-        "本批需选择1–200张不重复原图",
+        `本批需选择1–${maxPages}张不重复原图`,
       );
-      const selection = [datasetId, pageIds || null];
+      const selection = [datasetId, pageIds || null, classKeys || null];
+      const categoryScope = " AND ($3::text[] IS NULL OR EXISTS (SELECT 1 FROM jsonb_array_elements(i.boxes) b WHERE b->>'classKey'=ANY($3::text[])))";
+      if (pageIds) {
+        const eligible = (await c.query(
+          "SELECT count(*)::int n FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND s.deleted_at IS NULL AND i.status='confirmed' AND i.deleted_at IS NULL AND i.id=ANY($2::uuid[])",
+          [datasetId, pageIds],
+        )).rows[0].n;
+        need(eligible === pageIds.length, "只能导出本数据集内已确认且未删除的原图", 409);
+      }
       const songs = (
         await c.query(
           "SELECT * FROM omr_songs WHERE dataset_id=$1 AND deleted_at IS NULL ORDER BY id",
@@ -39,28 +51,22 @@ export async function freezeSnapshot(
       ).rows;
       const size = (
         await c.query(
-          "SELECT count(*)::int pages,COALESCE(sum(jsonb_array_length(i.boxes)),0)::int boxes FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND s.deleted_at IS NULL AND i.status='confirmed' AND i.deleted_at IS NULL AND ($2::uuid[] IS NULL OR i.id=ANY($2))",
+          "SELECT count(*)::int pages,COALESCE(sum(jsonb_array_length(i.boxes)),0)::int boxes FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND s.deleted_at IS NULL AND i.status='confirmed' AND i.deleted_at IS NULL AND ($2::uuid[] IS NULL OR i.id=ANY($2))" + categoryScope,
           selection,
         )
       ).rows[0];
       need(
-        size.pages <= 200 && size.boxes <= 10000,
-        "每次快照最多200确认源页和10000来源框，请在数据集内部选择一批确认页导出",
+        size.pages <= maxPages && size.boxes <= maxBoxes,
+        `本次导出最多${maxPages}确认源页和${maxBoxes}来源框，请用pageIds选择一批确认页导出`,
       );
       const sources = (
         await c.query(
-          "SELECT i.* FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND s.deleted_at IS NULL AND i.status='confirmed' AND i.deleted_at IS NULL AND ($2::uuid[] IS NULL OR i.id=ANY($2)) ORDER BY i.id LIMIT 201",
+          "SELECT i.* FROM omr_images i JOIN omr_songs s ON s.id=i.song_id WHERE s.dataset_id=$1 AND s.deleted_at IS NULL AND i.status='confirmed' AND i.deleted_at IS NULL AND ($2::uuid[] IS NULL OR i.id=ANY($2))" + categoryScope + " ORDER BY i.id LIMIT " + (maxPages + 1),
           selection,
         )
       ).rows;
-      if (pageIds)
-        need(
-          sources.length === pageIds.length,
-          "只能导出本数据集内已确认且未删除的原图",
-          409,
-        );
-      need(sources.length > 0, "没有已确认页面，无法导出");
-      need(sources.length <= 200, "首版每次快照最多200确认源页");
+      need(sources.length > 0, classKeys ? "没有包含所选类别的已确认页面，无法导出" : "没有已确认页面，无法导出");
+      need(sources.length <= maxPages, `每次快照最多${maxPages}确认源页`);
       const groupSplit = new Map();
       for (const s of songs) {
         need(
@@ -173,6 +179,7 @@ export async function freezeSnapshot(
       const frozen = JSON.parse(
         JSON.stringify({
           schemaVersion: 2,
+          ...(Object.keys(selectionOptions).length ? { selection: selectionOptions } : {}),
           taxonomyVersion: sources.some(
             (p: any) => p.annotation_version === LATEST_TAXONOMY,
           )
@@ -196,11 +203,11 @@ export async function freezeSnapshot(
             sourcePages: sources.length,
             uniqueImages: unique.length,
             sourceBoxes: sources.reduce(
-              (n: any, p: any) => n + p.boxes.length,
+              (n: any, p: any) => n + selectedBoxes(p.boxes, classKeys).length,
               0,
             ),
             uniqueBoxes: unique.reduce(
-              (n: any, p: any) => n + p.boxes.length,
+              (n: any, p: any) => n + selectedBoxes(p.boxes, classKeys).length,
               0,
             ),
             excludedDrafts: draftCount,

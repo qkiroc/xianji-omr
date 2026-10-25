@@ -1,6 +1,6 @@
 # 切图标注 · xianji-omr
 
-当前 schema8 / CLI0.4.0。编辑器中的删除属于标注 JSON 编辑，保存前可撤销、重做；删除数据集、谱页或导出快照时按影响范围清理数据库与相关文件，详见[数据清理说明](docs/permanent-deletion.md)。
+当前 schema8 / CLI0.5.0。编辑器中的删除属于标注 JSON 编辑，保存前可撤销、重做；删除数据集、谱页或导出快照时按影响范围清理数据库与相关文件，详见[数据清理说明](docs/permanent-deletion.md)。
 
 谱页新增独立[AI复核状态](docs/ai-review.md)，不等于人工确认、不计入确认训练数据。
 
@@ -68,3 +68,6 @@ layout-v2在原ID0–6后追加7标题、8歌手/演唱者、9拍号、10调号�
 ## schema5 几何定位与稳定URL
 
 见[定位API/CLI完整契约](docs/localization-contract.md)、[导入JSON Schema](docs/localization-import.schema.json)、[验收记录与限制](docs/localization-next-acceptance.md)。数据集/歌曲/谱页及定位数据集/记录均有独立pathname，query保留筛选、页码、视图与选区；兼容旧hash深链。几何确认不等于音乐内容真值，历史AI确认默认待人工复核。生产包在云端构建，部署前备份并expand至schema5；推送不会自动升级ECS。
+
+
+按类别导出ZIP：`node tools/cli/xianji-omr.mjs datasets export DATASET_ID --classes guitar,lyrics --output dataset.zip --origin URL`。默认导出裁片，`--kind detection`导出检测包；详见[CLI说明](tools/cli/README.md#按类别直接导出-zipcli-050)。

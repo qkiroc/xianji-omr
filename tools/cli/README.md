@@ -1,6 +1,6 @@
 # 弦记 OMR 独立 CLI
 
-当前CLI 0.4.0，新增`deletions preview/execute/list/retry`，永久级联删除替代旧可恢复删除；旧delete/restore接口返回410，需平台schema6。执行必须显式`--acknowledge`。完整stdin/API契约见[永久删除说明](../../docs/permanent-deletion.md)。旧文档中的可恢复删除示例不再适用。
+当前CLI 0.5.0，支持按类别导出ZIP，新增`deletions preview/execute/list/retry`，永久级联删除替代旧可恢复删除；旧delete/restore接口返回410，需平台schema6。执行必须显式`--acknowledge`。完整stdin/API契约见[永久删除说明](../../docs/permanent-deletion.md)。旧文档中的可恢复删除示例不再适用。
 
 需要Node >=22.18.0。仅Node内置模块，无自定义npm包、无MCP、无需npm install/login。平台必须先升级到包含schema3/CLI授权接口的版本；当前线上旧版本不会因GitHub更新自动升级。
 
@@ -105,3 +105,33 @@ node tools/cli/xianji-omr.mjs regions restore "$PAGE_ID" --region "$REGION_ID" -
 新增14个localization命令，全部50模板可检查，原命令保留。完整stdin导入、schema、来源映射、版本锁、显式确认和原生/裁片下载见仓库 [定位契约](../../docs/localization-contract.md)。离线使用者可打开 https://github.com/qkiroc/xianji-omr/blob/main/docs/localization-contract.md 。CLI仅调用平台，不连接OSS/RDS；平台需升级schema5后才有新接口。
 
 谱页 AI 复核：`pages confirm PAGE_UUID --version N --acknowledge --review-type ai`，筛选`records list DATASET_UUID --status ai_reviewed`。默认不带`--review-type`仍是人工确认。AI复核不计入人工确认导出，详见[状态契约](../../docs/ai-review.md)。
+
+
+## 按类别直接导出 ZIP（CLI 0.5.0）
+
+平台需要部署包含类别导出接口的版本。类别使用 taxonomy 返回的 key，例如 `guitar`（六线谱）、`lyrics`（歌词）、`melody`（简谱）、`system`（完整谱行）、`title`（标题）。
+
+```bash
+# 创建冻结快照，等待打包完成，校验SHA256并下载裁片ZIP
+node tools/cli/xianji-omr.mjs datasets export "$DATASET_ID" --classes guitar --output ./guitar.zip --origin "$OMR_ORIGIN"
+
+# 多个类别；逗号分隔，可组合全部13种类别
+node tools/cli/xianji-omr.mjs datasets export "$DATASET_ID" --classes guitar,lyrics --output ./guitar-lyrics.zip --origin "$OMR_ORIGIN"
+
+# 整页检测ZIP，内含YOLO、COCO和原生标注
+node tools/cli/xianji-omr.mjs datasets export "$DATASET_ID" --classes guitar --kind detection --output ./guitar-detection.zip --timeout 900 --origin "$OMR_ORIGIN"
+```
+
+默认 `--kind crops`，仅生成所需类型；保留 train/val/test、像素坐标、元信息和来源映射。只选取包含所选类别的已确认页面，草稿、AI复核页、无匹配类别页面不会混入。所选类别的训练ID从0连续编号，COCO从1编号；manifest保存原类别ID。父谱行保存在 `contextBoxes`，不会成为未选类别的训练标签。裁片仍可通过 `sources.json` 找回原图坐标与父谱行。
+
+`--classes`省略时导出全部类别。按类别导出最多5000来源页、100000来源框，普通全类别导出仍最多200页、10000框，单次导出临时文件和ZIP均限制512MB；超限会明确报错，不会截断数据。可用 `--input selection.json` 选择批次，内容例如 `{"pageIds":["PAGE_ID"]}`，亦可在JSON内用 `classKeys`指定类别（和`--classes`二选一）。
+
+默认等待打包900秒，`--timeout`支持1–3600秒。进度与快照ID输出到stderr，stdout只输出最终文件路径、校验值及快照ID。已存在的目标文件会在创建快照前拒绝覆盖。超时、退出或失败后，仍可查阅和重试同一冻结快照：
+
+```bash
+node tools/cli/xianji-omr.mjs snapshots get "$SNAPSHOT_ID" --origin "$OMR_ORIGIN"
+node tools/cli/xianji-omr.mjs snapshots retry "$SNAPSHOT_ID" --origin "$OMR_ORIGIN"
+node tools/cli/xianji-omr.mjs snapshots download "$SNAPSHOT_ID" --kind crops --output ./guitar.zip --origin "$OMR_ORIGIN"
+```
+
+若需同一冻结数据的检测包与裁片包，继续使用 `snapshots create --dataset "$DATASET_ID" --classes guitar,lyrics`，再分别下载两种ZIP。`snapshots download`不支持临时添加类别筛选，旧快照内容保持不变。`python3 tools/validate-export.py detection.zip crops.zip`可检查同一快照的两种包。

@@ -16,6 +16,7 @@ import sharp from "sharp";
 import yazl from "yazl";
 import { categoriesFor, TAXONOMY, digest, stable, need } from "./annotation.ts";
 import { freezeSnapshot } from "./snapshots.ts";
+import { selectedBoxes, contextBoxes, selectedCategories } from "./export-selection.ts";
 const MAX_BYTES = 512 * 1024 * 1024,
   EXPORT_LOCK = 79142603;
 const ext = (m: any) =>
@@ -45,7 +46,9 @@ export async function buildPackages({
   directory,
   onProgress = async () => {},
 }: any) {
-  const categoryList = categoriesFor(frozen.taxonomyVersion);
+  const classKeys = frozen.selection?.classKeys;
+  const kinds: string[] = frozen.selection?.artifactKinds || ["detection", "crops"];
+  const categoryList = selectedCategories(frozen.taxonomyVersion, classKeys);
   let bytes = 0;
   const checksums: Record<string, Record<string, string>> = {
       detection: {},
@@ -53,6 +56,7 @@ export async function buildPackages({
     },
     paths: Record<string, string[]> = { detection: [], crops: [] };
   async function save(kind: any, path: any, data: any) {
+    if (!kinds.includes(kind)) return;
     bytes += Buffer.byteLength(data);
     need(bytes <= MAX_BYTES, "导出临时文件超过512MB，请减少本批页数或框数");
     const dest = join(directory, kind, path);
@@ -73,6 +77,7 @@ export async function buildPackages({
     supercategory: c.key === "system" ? "system" : "region",
   }));
   for (const image of frozen.images) {
+    const boxes = selectedBoxes(image.boxes, classKeys);
     const { coordinate: c } = image,
       original = await storage.get(c.original.key);
     need(
@@ -102,7 +107,7 @@ export async function buildPackages({
           : `originals/${image.id}.${ext(c.original.mime)}`;
     await save("detection", path, work);
     if (sourcePath !== path) await save("detection", sourcePath, original);
-    const labels = image.boxes
+    const labels = boxes
       .map((b: any) => {
         const id = categoryList.find((c: any) => c.key === b.classKey)!.id;
         return [
@@ -136,13 +141,15 @@ export async function buildPackages({
       path,
       originalPath: sourcePath,
       coordinate: publicCoordinate(c),
-      boxes: image.boxes,
+      boxes,
+      ...(classKeys ? { contextBoxes: contextBoxes(image.boxes, boxes) } : {}),
       aliases: image.aliases,
     };
     native.push(item);
     let cropPixels = 0;
-    for (let index = 0; index < image.boxes.length; index++) {
-      const b = image.boxes[index];
+    for (let index = 0; index < boxes.length; index++) {
+      const b = boxes[index];
+      if (kinds.includes("crops")) {
       cropPixels += b.width * b.height;
       need(cropPixels <= 200000000, "单页裁片总像素超过2亿，请减少重叠区域");
       const file = `crops/${image.split}/${image.id}/${String(index + 1).padStart(4, "0")}.png`,
@@ -171,6 +178,7 @@ export async function buildPackages({
         readingOrder: b.readingOrder,
         ...(b.metadata !== undefined ? { metadata: b.metadata } : {}),
       });
+      }
       annotations.push({
         id: annotationId++,
         image_id: imageId,
@@ -208,6 +216,7 @@ export async function buildPackages({
     datasetId: frozen.dataset.id,
     task: "layout",
     taxonomyVersion: frozen.taxonomyVersion || TAXONOMY,
+    ...(frozen.selection ? { exportSelection: frozen.selection } : {}),
     categories: categoryList,
     images: native,
     songs: frozen.songs,
@@ -235,7 +244,7 @@ export async function buildPackages({
   };
   const artifacts: Record<string, any> = {};
   let manifest;
-  for (const kind of ["detection", "crops"]) {
+  for (const kind of kinds) {
     manifest = {
       ...base,
       artifact: kind,
