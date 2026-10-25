@@ -71,3 +71,14 @@ layout-v2在原ID0–6后追加7标题、8歌手/演唱者、9拍号、10调号�
 
 
 按类别导出ZIP：`node tools/cli/xianji-omr.mjs datasets export DATASET_ID --classes guitar,lyrics --output dataset.zip --origin URL`。默认导出裁片，`--kind detection`导出检测包；详见[CLI说明](tools/cli/README.md#按类别直接导出-zipcli-050)。
+
+### 本地 CLI 部署平台
+
+已有 ECS 初始配置后，下载 GitHub Actions 的 Linux 预构建包及同名 SHA256 文件，即可从本机 SSH 发起升级和查询状态，无需进入 ECS 终端：
+
+```bash
+node tools/cli/xianji-omr.mjs platform deploy --host omr-ecs --artifact ./release.tar.gz
+node tools/cli/xianji-omr.mjs platform status --host omr-ecs
+```
+
+需 Node >=22.18、系统 OpenSSH/tar、已核验的主机指纹、SSH密钥，以及 root 或免密sudo。`--dry-run`只校验本地包；完整步骤见 [CLI说明](tools/cli/README.md#从本地-cli-部署平台060)。部署复用既有配置，先备份再迁移并执行健康检查。

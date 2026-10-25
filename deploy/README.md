@@ -2,7 +2,20 @@
 
 > 当前为schema8（新增人工审核日期记录；历史非合成确认页以更新时间回填为估算，不改原标注内容），删除语义已改为不可恢复级联清理。升级前核对新增OSS版本查询/删除权限；见[永久删除说明](../docs/permanent-deletion.md)。以下旧schema/软删除章节仅为历史说明，恢复入口及相关旧接口已停用。升级不自动清空历史回收数据。
 
-## 当前推荐：ECS 单行源码构建部署
+## 本地 CLI 升级（无需进入 ECS 终端）
+
+ECS 已完成首次配置后，可在 Windows/macOS/Linux 本机通过 SSH 密钥发起升级：
+
+```bash
+node tools/cli/xianji-omr.mjs platform deploy --host omr-ecs --artifact ./release.tar.gz
+node tools/cli/xianji-omr.mjs platform status --host omr-ecs
+```
+
+`omr-ecs` 是本机 SSH config 别名，也可填写 `root@ECS地址`。需要已核验的主机指纹、密钥/agent，以及 root 或免密 sudo。部署包及旁置 SHA256 来自 GitHub Actions 的 **Build ECS release package** 附件；不需要ECS拉取源码或本地npm安装。CLI自动双端校验、上传和执行既有备份/迁移/健康检查流程。`--dry-run`可仅校验本地包。完整参数、首次准备和断线处理见 [CLI说明](../tools/cli/README.md#从本地-cli-部署平台060)。
+
+部署脚本增加 `--artifact FILE --sha256 SHA --commit COMMIT --non-interactive`，用于CLI上传的独立暂存目录：commit必须匹配包内清单；无需Git检出，必须已有应用托管标记和配置，缺失即停止。手工源码构建及原有产物部署方式继续可用。
+
+## ECS 单行源码构建部署
 
 已有仓库目录中执行：
 

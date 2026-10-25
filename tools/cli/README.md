@@ -1,6 +1,6 @@
 # 弦记 OMR 独立 CLI
 
-当前CLI 0.5.0，支持按类别导出ZIP，新增`deletions preview/execute/list/retry`，永久级联删除替代旧可恢复删除；旧delete/restore接口返回410，需平台schema6。执行必须显式`--acknowledge`。完整stdin/API契约见[永久删除说明](../../docs/permanent-deletion.md)。旧文档中的可恢复删除示例不再适用。
+当前CLI 0.6.0，支持本地SSH部署和按类别导出ZIP，新增`deletions preview/execute/list/retry`，永久级联删除替代旧可恢复删除；旧delete/restore接口返回410，需平台schema6。执行必须显式`--acknowledge`。完整stdin/API契约见[永久删除说明](../../docs/permanent-deletion.md)。旧文档中的可恢复删除示例不再适用。
 
 需要Node >=22.18.0。仅Node内置模块，无自定义npm包、无MCP、无需npm install/login。平台必须先升级到包含schema3/CLI授权接口的版本；当前线上旧版本不会因GitHub更新自动升级。
 
@@ -135,3 +135,31 @@ node tools/cli/xianji-omr.mjs snapshots download "$SNAPSHOT_ID" --kind crops --o
 ```
 
 若需同一冻结数据的检测包与裁片包，继续使用 `snapshots create --dataset "$DATASET_ID" --classes guitar,lyrics`，再分别下载两种ZIP。`snapshots download`不支持临时添加类别筛选，旧快照内容保持不变。`python3 tools/validate-export.py detection.zip crops.zip`可检查同一快照的两种包。
+
+## 从本地 CLI 部署平台（0.6.0）
+
+已有 ECS 完成首次安装和私密配置后，后续无需进入 ECS 终端，无需在 ECS 拉 Git 或编译。CLI 使用系统 OpenSSH 上传 Linux x64 / Node22 预构建包，校验后执行原有部署流程：全库备份、幂等迁移、原子切换、健康检查及兼容版本回退。平台网页登录授权与 SSH 部署权限独立，部署命令不要求 `auth` 或 `--origin`。
+
+准备一次：本机安装 Node >=22.18、OpenSSH（ssh/scp）和 tar；Windows 自带 OpenSSH 可选功能和 tar，macOS/Linux 使用系统工具。SSH 使用密钥或 agent，目标账号为 root 或支持 `sudo -n` 的管理员。主机指纹必须已核验并记录在 known_hosts；CLI 不接受未知指纹、不使用密码、不关闭指纹校验。推荐在 `~/.ssh/config` 配置别名，例如 `omr-ecs`，也可用 `root@116.62.12.100`。需要跳板机/IPv6时使用 SSH config 别名。
+
+从 GitHub Actions 的 **Build ECS release package** 成功任务下载 `xianji-omr-linux-x64-node22` 附件，解开外层 ZIP，得到 `.tar.gz` 和同名 `.tar.gz.sha256`。两者放在同一目录。部署包内的 commit 决定部署版本，不会自动部署浮动 main。
+
+以下单行命令可直接在 PowerShell、macOS/Linux 终端执行，将示例包名换成实际文件：
+
+```bash
+# 本地预演：校验包与摘要，显示目标commit；不连接ECS
+node tools/cli/xianji-omr.mjs platform deploy --host omr-ecs --artifact ./release.tar.gz --dry-run
+
+# 一条命令上传并部署；自动读取旁置.sha256
+node tools/cli/xianji-omr.mjs platform deploy --host omr-ecs --artifact ./release.tar.gz
+
+# 查看服务状态、当前commit/release、数据库schema和健康检查
+node tools/cli/xianji-omr.mjs platform status --host omr-ecs
+
+# 不使用SSH别名时；sha256是完整64位小写十六进制
+node tools/cli/xianji-omr.mjs platform deploy --host root@116.62.12.100 --port 22 --identity ./ecs_key --artifact ./release.tar.gz --sha256 YOUR_SHA256 --timeout 1800
+```
+
+离线CLI包的入口改为 `node xianji-omr.mjs`，已包含部署脚本，无需检出仓库或安装 npm 依赖。部署包最大2GiB，目标仍仅支持 Alibaba Cloud Linux 3 / x86_64 / systemd。复用 `/etc/xianji-omr/config.json`；缺少初始配置时拒绝非交互部署，首次配置继续见仓库 `deploy/README.md`。不会上传私钥或服务配置；ECS需能访问现有RDS/OSS及bootstrap依赖源。
+
+默认整次部署超时1800秒，`--timeout`支持1–7200秒，状态查询默认30秒。进度与远端阶段日志在stderr，成功stdout仅一份JSON；失败退出非零，SSH/远端部署失败为6。预演不检查远端环境。中断、超时或SSH断线后，远端部署可能仍在执行，先查询 `platform status` 并核对 `/var/log/xianji-omr-deploy/` 的阶段日志；勿直接重复发起。失败时stderr给出本次暂存路径，保留以便排查；部署成功后清理暂存包，保留release、备份和部署日志。迁移不自动回滚数据库；新schema与旧release不兼容时按原部署规则停止服务，不强启旧代码。

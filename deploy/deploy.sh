@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-artifact= checksum= build_source=false low_memory=false
+artifact= checksum= commit= build_source=false low_memory=false non_interactive=false
 while (( $# )); do
  case $1 in
  --artifact) [[ $# -ge 2 ]] || exit 2; artifact=$2; shift 2 ;;
  --sha256) [[ $# -ge 2 ]] || exit 2; checksum=$2; shift 2 ;;
+ --commit) [[ $# -ge 2 ]] || exit 2; commit=$2; shift 2 ;;
+ --non-interactive) non_interactive=true; shift ;;
  --build-from-source) build_source=true; shift ;;
  --build-on-ecs) build_source=true; low_memory=true; shift ;;
  *) echo '用法：sudo bash deploy/deploy.sh --build-on-ecs 或 --artifact /path/package.tar.gz --sha256 SHA256'; exit 2 ;;
@@ -20,8 +22,20 @@ fi
 [[ $EUID -eq 0 ]] || { echo '请执行 sudo bash deploy/deploy.sh'; exit 1; }
 source /etc/os-release
 [[ $ID == alinux && $VERSION_ID == 3* && -d /run/systemd/system ]] || { echo '仅支持 Alibaba Cloud Linux 3 + systemd'; exit 1; }
-repo=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel)
-git -C "$repo" diff --quiet HEAD && [[ -z $(git -C "$repo" ls-files --others --exclude-standard) ]] || { echo '源码有未提交修改，请先核对；不会重置源码'; exit 1; }
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+if [[ $build_source == true || -z $commit ]]; then
+ repo=$(git -C "$repo" rev-parse --show-toplevel)
+ git -C "$repo" diff --quiet HEAD && [[ -z $(git -C "$repo" ls-files --others --exclude-standard) ]] || { echo '源码有未提交修改，请先核对；不会重置源码'; exit 1; }
+ commit=$(git -C "$repo" rev-parse HEAD)
+fi
+[[ $commit =~ ^[a-f0-9]{40}$ ]] || { echo '部署commit无效'; exit 2; }
+if [[ -n $artifact ]]; then
+ [[ $checksum =~ ^[a-f0-9]{64}$ ]] || { echo '必须提供SHA256'; exit 2; }
+ printf '%s  %s\n' "$checksum" "$artifact" | sha256sum --check --status || { echo '部署包SHA256不一致'; exit 1; }
+fi
+if [[ $non_interactive == true ]]; then
+ [[ -f /etc/xianji-omr/config.json && ! -L /etc/xianji-omr/config.json && -f /opt/xianji-omr/.xianji-omr-managed ]] || { echo '首次安装请先完成ECS初始配置；非交互部署未修改配置'; exit 1; }
+fi
 root=/opt/xianji-omr
 for p in "$root" /etc/xianji-omr /var/backups/xianji-omr /var/log/xianji-omr-deploy; do
  [[ ! -L $p ]] || { echo '部署路径不能是软链接'; exit 1; }
@@ -42,14 +56,14 @@ bash "$repo/deploy/bootstrap.sh"
 export PATH="$root/runtime/node/bin:$root/runtime/postgresql/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 if ! id xianji-omr >/dev/null 2>&1; then useradd --system --home-dir /nonexistent --shell /sbin/nologin xianji-omr; fi
 [[ $(id -u xianji-omr) -ne 0 ]]
-version=$(date -u +%Y%m%dT%H%M%SZ)-$(git -C "$repo" rev-parse --short=12 HEAD)-$$
+version=$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}-$$
 release=$root/releases/$version
 mkdir -m 755 "$release"
 if [[ -n $artifact ]]; then
  echo '阶段：校验云端预构建包（不在 ECS npm install / next build）'
  node "$repo/deploy/artifact.mjs" archive "$artifact" "$checksum"
  tar --no-same-owner --no-same-permissions -xzf "$artifact" -C "$release"
- node "$repo/deploy/artifact.mjs" release "$release" "$(git -C "$repo" rev-parse HEAD)"
+ node "$repo/deploy/artifact.mjs" release "$release" "$commit"
 else
  git -C "$repo" archive HEAD package.json package-lock.json web server deploy app components shared next.config.ts next-env.d.ts tsconfig.json | tar -xf - -C "$release"
  if [[ $low_memory == true ]]; then
@@ -62,7 +76,11 @@ fi
 printf '%s\n' "$version" > "$release/server/RELEASE"
 chmod -R a+rX "$release"
 echo '阶段：首次私密配置或复用配置（提示直接显示在终端，密码隐藏）'
-node "$release/server/setup-config.mjs" </dev/tty >/dev/tty 2>/dev/tty
+if [[ $non_interactive == true ]]; then
+ node "$release/server/setup-config.mjs" </dev/null
+else
+ node "$release/server/setup-config.mjs" </dev/tty >/dev/tty 2>/dev/tty
+fi
 # preflight validates port ownership before any service unit replacement/migration.
 node "$release/server/deploy.mjs" "$release" --preflight
 install -m 644 "$release/deploy/xianji-omr.service" /etc/systemd/system/xianji-omr.service
