@@ -26,3 +26,8 @@ test('preserved remote pages are left untouched while the migration is recorded 
 
 
 test('a concurrent save conflict is preserved without confirming over the other edit',async t=>{const f=await fixture(t);f.behavior.conflictOnSave=true;const result=await f.run();assert.equal(result.preserved.length,1);assert.equal(result.preserved[0].reason,'version-conflict-during-annotation-repair');assert.equal(f.remote.boxes[0].width,101);assert.equal(f.remote.boxes[0].height,90);assert.ok(!f.events.some(e=>e.path.endsWith('/confirm')));});
+
+test('a missing page during annotation repair is preserved without blocking other editions',async t=>{
+ const f=await fixture(t);const result=await repairEditionAnnotations({sourceDirectory:f.root,profileId:'profile',directory:f.root,datasetId:'dataset',api:async()=>{throw Object.assign(Error('not found'),{status:404});}});
+ assert.equal(result.preserved.length,1);assert.equal(result.preserved[0].reason,'page-missing-during-annotation-repair');assert.equal(result.preserved[0].actualStatus,null);
+});

@@ -26,7 +26,7 @@ for(const job of plan.jobs){
   const outputDir=join(batch,phase,job.id,profile.id),transaction=await readJSON(join(outputDir,'replacement-state.json')),result=await readJSON(join(outputDir,'render-result.json'));
   await add(join(outputDir,'replacement-state.json'),true);
   const report=await readJSON(join(batch,phase,'progress.json'),{completed:[]}),recorded=report.completed?.some(p=>p.key===job.id+':'+profile.id);
-  if(!result||transaction?.phase==='complete'&&recorded)continue;
+  if(!result||transaction?.phase==='preserved'||transaction?.phase==='complete'&&recorded)continue;
   // Original layout runs may predate the aggregate completed list. Their own transaction is sufficient.
   if(phase==='layout-revision-v2'&&transaction?.phase==='complete')continue;
   pendingEditions++;await add(join(outputDir,'render-result.json'));await add(join(outputDir,'annotations.json'));

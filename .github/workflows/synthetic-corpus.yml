@@ -41,7 +41,7 @@ jobs:
           node-version: '22'
           package-manager-cache: false
       - name: Verify notation, encrypted assets and replacement safety
-        run: node --test test/synthetic-resilience.test.mjs test/synthetic-reconcile.test.mjs test/synthetic-music-geometry.test.mjs test/synthetic-annotation-repair.test.mjs test/synthetic-cloud-auth.test.mjs test/synthetic-cloud.test.mjs test/synthetic-accompaniment.test.mjs test/synthetic-layout.test.mjs test/synthetic-replacement.test.mjs
+        run: node --test test/synthetic-edition-conflicts.test.mjs test/synthetic-resilience.test.mjs test/synthetic-reconcile.test.mjs test/synthetic-music-geometry.test.mjs test/synthetic-annotation-repair.test.mjs test/synthetic-cloud-auth.test.mjs test/synthetic-cloud.test.mjs test/synthetic-accompaniment.test.mjs test/synthetic-layout.test.mjs test/synthetic-replacement.test.mjs
 
   produce:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[resume-synthetic]'))
@@ -120,7 +120,8 @@ jobs:
           node --input-type=module <<'JS'
           import {readFile,appendFile} from 'node:fs/promises';
           const p=JSON.parse(await readFile('.artifacts/synthetic-renderer/audition-195-batch/accompaniment-revision-v3/progress.json','utf8'));
-          await appendFile(process.env.GITHUB_STEP_SUMMARY,`Status: ${p.status}\n\nCompleted editions: ${p.completed.length} / 585\n\nConfirmed pages: ${p.completed.reduce((n,v)=>n+v.pages,0)}\n\nPreserved pages needing review: ${p.preservedPages?.length||0}\n`);
+          await appendFile(process.env.GITHUB_STEP_SUMMARY,`Status: ${p.status}\n\nCompleted editions: ${p.completed.length} / 585\n\nConfirmed pages: ${p.completed.reduce((n,v)=>n+v.pages,0)}\n\nPreserved pages needing review: ${p.preservedPages?.length||0}\n\nPreserved editions needing review: ${p.preservedEditions?.length||0}\n`);
+          for(const item of p.preservedEditions||[])await appendFile(process.env.GITHUB_STEP_SUMMARY,`\n- ${item.title} / ${item.profile}: ${item.reason}; song=${item.songId}; pages=${[...(item.oldPageIds||[]),...(item.newPageIds||[])].join(', ')}\n`);
           JS
       - name: Continue on the next cloud runner if needed
         if: success() && (github.event_name == 'push' || inputs.auto_continue) && steps.upload.outcome == 'success'

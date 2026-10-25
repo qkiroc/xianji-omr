@@ -1,3 +1,4 @@
+import {replacementIsTerminal,recordPreservedEdition} from './edition-conflicts.mjs';
 import {resilientRequest,serviceFailureDisposition} from './resilient-request.mjs';
 import {reconcileCompletedEdition} from './reconcile-completed.mjs';
 import {ANNOTATION_REVISION,repairEditionAnnotations} from './repair-annotations.mjs';
@@ -53,18 +54,19 @@ async function waitForPreviousTask(batch){
  log({event:'waiting-for-previous-task',seconds:Math.ceil((30000-age)/1000)});
  while(Date.now()-Date.parse(first.updatedAt)<30000){await new Promise(r=>setTimeout(r,1000));const current=await readJSON(file);if(current?.updatedAt!==first.updatedAt)throw Error('Previous layout task is still writing; stop it before starting this revision');}
 }
-async function finishPendingLegacy(batch,sourcePlan,conn){
+async function finishPendingLegacy(batch,sourcePlan,conn,report,saveReport){
  let recovered=0;
  for(const job of sourcePlan.jobs)for(const p of job.profiles){
   const directory=join(batch,'layout-revision-v2',job.id,p.id),state=await readJSON(join(directory,'replacement-state.json')),result=await readJSON(join(directory,'render-result.json'));
-  if(state?.phase==='complete'||!result)continue;
+  if(state?.phase==='preserved'){const preserved=recordPreservedEdition(report,{sourceId:job.id,title:job.title,profileId:p.id,phase:'legacy-recovery'},state);await saveReport();log({event:'edition-preserved',...preserved});continue;}
+  if(replacementIsTerminal(state)||!result)continue;
   // A fully rendered edition can have an upload interrupted before its first checkpoint.
   const sourceState=await readJSON(join(batch,job.id,'state.json'),{profiles:[]}),prior=sourceState.profiles.find(r=>r.id===p.id);
   if(prior?.layoutRevision===ACCOMPANIMENT_REVISION||!state&&prior?.layoutRevision===LAYOUT_REVISION)continue;
   if(result.layoutRevision!==LAYOUT_REVISION)throw Error('Unexpected interrupted legacy revision');
   log({event:'recovering-interrupted-edition',title:job.title,profile:p.id});
   const profile=(await readJSON(join(batch,job.id,'profiles.json'))).find(v=>v.id===p.id);
-  await uploadEdition({plan:sourcePlan,job,profile,directory,result,...conn,sourceDirectory:join(batch,job.id),backupDirectory:join(batch,'layout-revision-v2/previous-states'),revision:LAYOUT_REVISION});recovered++;
+  const settled=await uploadEdition({plan:sourcePlan,job,profile,directory,result,...conn,sourceDirectory:join(batch,job.id),backupDirectory:join(batch,'layout-revision-v2/previous-states'),revision:LAYOUT_REVISION});const preserved=recordPreservedEdition(report,{sourceId:job.id,title:job.title,profileId:p.id,phase:'legacy-recovery'},settled);if(preserved){await saveReport();log({event:'edition-preserved',...preserved});}else recovered++;
  }
  if(recovered)log({event:'interrupted-editions-recovered',editions:recovered});
 }
@@ -98,11 +100,12 @@ export async function runAccompaniment(args=process.argv.slice(2)){
  await lock.writeFile(JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}));
  const report=await readJSON(reportFile,{revision:ACCOMPANIMENT_REVISION,completed:[],failed:[],status:'running'}),startedAt=Date.now(),timeBudget=Number(option('--time-budget',300))*60000;let browser,conn,done=0;
  try{
-  if(upload){await waitForPreviousTask(batch);conn=await connection(root,sourcePlan);await finishPendingLegacy(batch,sourcePlan,conn);
+  if(upload){await waitForPreviousTask(batch);conn=await connection(root,sourcePlan);await finishPendingLegacy(batch,sourcePlan,conn,report,()=>atomic(reportFile,report));
    // Finish already-uploaded transactions with their frozen pixels before annotation migration.
-   for(const item of manifest.queue){const directory=join(out,item.sourceId,item.profileId),pending=await readJSON(join(directory,'replacement-state.json')),result=await readJSON(join(directory,'render-result.json'));if(!pending||pending.phase==='complete'||!pending.newPages?.length||!result)continue;
+   for(const item of manifest.queue){const directory=join(out,item.sourceId,item.profileId),pending=await readJSON(join(directory,'replacement-state.json')),result=await readJSON(join(directory,'render-result.json'));if(!pending||replacementIsTerminal(pending)||!pending.newPages?.length||!result)continue;
     const job=sourcePlan.jobs.find(j=>j.id===item.sourceId);log({event:'recovering-interrupted-accompaniment',title:item.title,profile:item.profileId,phase:pending.phase});
     const state=await uploadEdition({plan:sourcePlan,job,profile:item.profile,directory,result,...conn,sourceDirectory:join(batch,job.id),backupDirectory:join(out,'previous-states'),revision:ACCOMPANIMENT_REVISION,renameSong:true});
+    const preserved=recordPreservedEdition(report,item,state);if(preserved){await atomic(reportFile,report);log({event:'edition-preserved',...preserved});continue;}
     const key=item.sourceId+':'+item.profileId;if(!report.completed.some(p=>p.key===key))report.completed.push({key,phase:item.phase,style:item.profile.pluckNotation,songId:state.songId,pages:state.newPages.length,rendererSha256:result.rendererSha256});await atomic(reportFile,report);log({event:'interrupted-accompaniment-recovered',title:item.title,profile:item.profileId,completedEditions:report.completed.length});
    }
 }
@@ -110,7 +113,11 @@ export async function runAccompaniment(args=process.argv.slice(2)){
   const renderer=render?await import(pathToFileURL(installed.path)):null,limit=Number(option('--limit',Infinity));if(!(limit>0))throw Error('--limit must be positive');
   report.status='running';delete report.failure;let phase,verifiedCompleted=0;
   for(const item of manifest.queue){
-   if(option('--song')&&item.sourceId!==option('--song'))continue;const key=item.sourceId+':'+item.profileId,completed=report.completed.find(p=>p.key===key);if(completed&&(upload||flag('--cloud'))){if(completed.rendererSha256!==installed.sha256&&!flag('--cloud'))throw Error('An uploaded edition uses another renderer; keep this revision frozen');if(flag('--cloud')&&upload){
+   if(option('--song')&&item.sourceId!==option('--song'))continue;
+   const settled=await readJSON(join(out,item.sourceId,item.profileId,'replacement-state.json'));
+   if(settled?.phase==='preserved'){const preserved=recordPreservedEdition(report,item,settled);await atomic(reportFile,report);log({event:'edition-preserved',...preserved});continue;}
+   if(report.preservedEditions?.some(p=>p.key===item.sourceId+':'+item.profileId))continue;
+   const key=item.sourceId+':'+item.profileId,completed=report.completed.find(p=>p.key===key);if(completed&&(upload||flag('--cloud'))){if(completed.rendererSha256!==installed.sha256&&!flag('--cloud'))throw Error('An uploaded edition uses another renderer; keep this revision frozen');if(flag('--cloud')&&upload){
      report.current={sourceId:item.sourceId,title:item.title,profile:item.profileId,phase:'verify-completed'};await atomic(reportFile,report);
      const reconciled=await reconcileCompletedEdition({sourceDirectory:join(batch,item.sourceId),item,datasetId:sourcePlan.datasetId,api:conn.api,revision:ACCOMPANIMENT_REVISION,log,baselineAnnotations:async()=>{
       if(!renderer)throw Error('Use --run for historical annotation comparison');
@@ -136,10 +143,10 @@ export async function runAccompaniment(args=process.argv.slice(2)){
     const transaction=await readJSON(join(directory,'replacement-state.json'));if(transaction?.newPages?.length)throw Error('Renderer changed after this edition started uploading; preserving its checkpoint');
     result=await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});result.rendererSha256=installed.sha256;await atomic(resultFile,result);
    }
-   if(upload){if(!result||!resumeExisting&&result.rendererSha256!==installed.sha256)throw Error('Current revision not rendered: '+key);const state=await uploadEdition({plan:sourcePlan,job,profile,directory,result,...conn,sourceDirectory,backupDirectory:join(out,'previous-states'),revision:ACCOMPANIMENT_REVISION,renameSong:true});if(resumeExisting){await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});}const repair=await repairEditionAnnotations({sourceDirectory,profileId:profile.id,directory,api:conn.api,datasetId:sourcePlan.datasetId});report.preservedPages=[...(report.preservedPages||[]),...repair.preserved.map(p=>({...p,title:item.title,profile:item.profileId,sourceId:item.sourceId}))];report.completed.push({annotationRevision:ANNOTATION_REVISION,key,phase,style:profile.pluckNotation,songId:state.songId,pages:state.newPages.length,rendererSha256:result.rendererSha256});}
+   if(upload){if(!result||!resumeExisting&&result.rendererSha256!==installed.sha256)throw Error('Current revision not rendered: '+key);const state=await uploadEdition({plan:sourcePlan,job,profile,directory,result,...conn,sourceDirectory,backupDirectory:join(out,'previous-states'),revision:ACCOMPANIMENT_REVISION,renameSong:true});const preserved=recordPreservedEdition(report,item,state);if(preserved){done++;await atomic(reportFile,report);log({event:'edition-preserved',...preserved,completedEditions:report.completed.length});continue;}if(resumeExisting){await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});}const repair=await repairEditionAnnotations({sourceDirectory,profileId:profile.id,directory,api:conn.api,datasetId:sourcePlan.datasetId});report.preservedPages=[...(report.preservedPages||[]),...repair.preserved.map(p=>({...p,title:item.title,profile:item.profileId,sourceId:item.sourceId}))];report.completed.push({annotationRevision:ANNOTATION_REVISION,key,phase,style:profile.pluckNotation,songId:state.songId,pages:state.newPages.length,rendererSha256:result.rendererSha256});}
    done++;report.consecutiveServicePauses=0;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:upload?'replaced':'rendered',phase,title:job.title,profile:profile.id,style:profile.pluckNotation,pages:result.pageCount,crossPlucks:result.accompanimentCoverage?.renderedCrossPlucks,completedEditions:report.completed.length});
   }
-  report.status=option('--song')?'selection-complete':report.preservedPages?.length?'complete-with-preserved-pages':'complete';report.current=null;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:'complete',status:report.status,editions:report.completed.length,pages:report.completed.reduce((n,p)=>n+p.pages,0)});
+  report.status=option('--song')?'selection-complete':report.preservedEditions?.length?'complete-with-preserved-editions':report.preservedPages?.length?'complete-with-preserved-pages':'complete';report.current=null;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:'complete',status:report.status,editions:report.completed.length,pages:report.completed.reduce((n,p)=>n+p.pages,0),preservedEditions:report.preservedEditions?.length||0,preservedPages:report.preservedPages?.length||0});
  }catch(error){const disposition=serviceFailureDisposition(error,report.consecutiveServicePauses||0);Object.assign(report,disposition);report.failure={message:error.message,status:error.status,method:error.apiMethod,path:error.apiPath,current:report.current,at:new Date().toISOString()};await atomic(reportFile,report);if(report.status==='paused'){log({event:'service-unavailable-paused',...report.failure,completedEditions:report.completed.length,consecutiveServicePauses:report.consecutiveServicePauses});return;}throw error;}
  finally{await browser?.close();await lock.close();await unlink(lockPath).catch(()=>{});}
 }
