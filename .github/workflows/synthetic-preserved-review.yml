@@ -1,0 +1,39 @@
+name: Review preserved synthetic pages
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - tools/synthetic/review-preserved.mjs
+      - .github/workflows/synthetic-preserved-review.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      OMR_ASSET_KEY: ${{ secrets.OMR_ASSET_KEY }}
+      OMR_CLI_TOKEN: ${{ secrets.OMR_CLI_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Restore completed encrypted checkpoint
+        run: |
+          gh run download 40203481651 --name synthetic-checkpoint --dir .artifacts/preserved-review-resume
+          node tools/synthetic/bootstrap-cloud.mjs --checkpoint .artifacts/preserved-review-resume
+      - name: Install pinned renderer, browser and fonts
+        run: |
+          npm ci --prefix .artifacts/synthetic-renderer --ignore-scripts
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk fonts-arphic-ukai fonts-arphic-uming fonts-liberation
+          node .artifacts/synthetic-renderer/node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Read actual pages through CLI and regenerate geometry without platform writes
+        run: node tools/synthetic/review-preserved.mjs
