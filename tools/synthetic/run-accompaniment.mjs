@@ -1,3 +1,4 @@
+import {resilientRequest,serviceFailureDisposition} from './resilient-request.mjs';
 import {reconcileCompletedEdition} from './reconcile-completed.mjs';
 import {ANNOTATION_REVISION,repairEditionAnnotations} from './repair-annotations.mjs';
 import {readFile,writeFile,mkdir,rename,open,unlink} from 'node:fs/promises';
@@ -42,7 +43,7 @@ async function collectPlan(batch,sourcePlan){
 }
 async function connection(root,sourcePlan){
  process.env.XDG_CONFIG_HOME=join(root,'../cli-config');const cloudToken=process.env.OMR_CLI_TOKEN;if(cloudToken&&!/^omr_cli_[a-f0-9]{64}$/.test(cloudToken))throw Error('Cloud CLI token format is invalid');const credential=cloudToken?{token:cloudToken}:await readCredential(sourcePlan.origin);if(!credential)throw Error('CLI authorization missing');
- const request=client(sourcePlan.origin,credential.token),api=async(path,value,method='POST')=>{for(let i=0;;i++){try{return await limitedJSON(await request(path,value===undefined?{}:jsonBody(value,method)));}catch(e){if(e.status!==429||i>=20)throw e;await new Promise(r=>setTimeout(r,600+Math.min(150*i,2000)));}}};
+ const request=resilientRequest(client(sourcePlan.origin,credential.token)),api=async(path,value,method='POST')=>limitedJSON(await request(path,value===undefined?{}:jsonBody(value,method)));
  await api('/api/v2/datasets/'+sourcePlan.datasetId+'/songs');return{request,api};
 }
 async function waitForPreviousTask(batch){
@@ -107,7 +108,7 @@ export async function runAccompaniment(args=process.argv.slice(2)){
 }
   if(render){const {chromium}=await import(pathToFileURL(join(root,'node_modules/playwright-core/index.mjs')));browser=await chromium.launch({...((option('--browser',process.env.OMR_BROWSER_PATH||(process.platform==='win32'?'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe':undefined)))?{executablePath:option('--browser',process.env.OMR_BROWSER_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe')}:{ }),headless:true});}
   const renderer=render?await import(pathToFileURL(installed.path)):null,limit=Number(option('--limit',Infinity));if(!(limit>0))throw Error('--limit must be positive');
-  report.status='running';delete report.failure;let phase;
+  report.status='running';delete report.failure;let phase,verifiedCompleted=0;
   for(const item of manifest.queue){
    if(option('--song')&&item.sourceId!==option('--song'))continue;const key=item.sourceId+':'+item.profileId,completed=report.completed.find(p=>p.key===key);if(completed&&(upload||flag('--cloud'))){if(completed.rendererSha256!==installed.sha256&&!flag('--cloud'))throw Error('An uploaded edition uses another renderer; keep this revision frozen');if(flag('--cloud')&&upload){
      report.current={sourceId:item.sourceId,title:item.title,profile:item.profileId,phase:'verify-completed'};await atomic(reportFile,report);
@@ -117,7 +118,7 @@ export async function runAccompaniment(args=process.argv.slice(2)){
       await historicalRenderer.renderBatchProfile({source:await readJSON(join(sourceDirectory,'source-schema2.json')),score:await readJSON(join(sourceDirectory,'converted-score.json')),profile:item.profile,out:baselineOut,browser});
       return readJSON(join(baselineOut,item.profileId,'annotations.json'));
      }});
-     report.preservedPages=[...(report.preservedPages||[]).filter(p=>p.sourceId!==item.sourceId||p.profile!==item.profileId),...reconciled.preserved.map(p=>({...p,sourceId:item.sourceId}))];await atomic(reportFile,report);
+     report.preservedPages=[...(report.preservedPages||[]).filter(p=>p.sourceId!==item.sourceId||p.profile!==item.profileId),...reconciled.preserved.map(p=>({...p,sourceId:item.sourceId}))];report.consecutiveServicePauses=0;await atomic(reportFile,report);verifiedCompleted++;if(verifiedCompleted%50===0)log({event:'completed-editions-verified',editions:verifiedCompleted,total:report.completed.length});
     if(completed.annotationRevision!==ANNOTATION_REVISION){
      if(Date.now()-startedAt>timeBudget){report.status='paused';await atomic(reportFile,report);return;}
      const job=sourcePlan.jobs.find(j=>j.id===item.sourceId),sourceDirectory=join(batch,job.id),directory=join(out,job.id,item.profileId);
@@ -136,11 +137,11 @@ export async function runAccompaniment(args=process.argv.slice(2)){
     result=await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});result.rendererSha256=installed.sha256;await atomic(resultFile,result);
    }
    if(upload){if(!result||!resumeExisting&&result.rendererSha256!==installed.sha256)throw Error('Current revision not rendered: '+key);const state=await uploadEdition({plan:sourcePlan,job,profile,directory,result,...conn,sourceDirectory,backupDirectory:join(out,'previous-states'),revision:ACCOMPANIMENT_REVISION,renameSong:true});if(resumeExisting){await renderer.renderBatchProfile({source,score,profile,out:join(out,job.id),browser});}const repair=await repairEditionAnnotations({sourceDirectory,profileId:profile.id,directory,api:conn.api,datasetId:sourcePlan.datasetId});report.preservedPages=[...(report.preservedPages||[]),...repair.preserved.map(p=>({...p,title:item.title,profile:item.profileId,sourceId:item.sourceId}))];report.completed.push({annotationRevision:ANNOTATION_REVISION,key,phase,style:profile.pluckNotation,songId:state.songId,pages:state.newPages.length,rendererSha256:result.rendererSha256});}
-   done++;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:upload?'replaced':'rendered',phase,title:job.title,profile:profile.id,style:profile.pluckNotation,pages:result.pageCount,crossPlucks:result.accompanimentCoverage?.renderedCrossPlucks,completedEditions:report.completed.length});
+   done++;report.consecutiveServicePauses=0;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:upload?'replaced':'rendered',phase,title:job.title,profile:profile.id,style:profile.pluckNotation,pages:result.pageCount,crossPlucks:result.accompanimentCoverage?.renderedCrossPlucks,completedEditions:report.completed.length});
   }
   report.status=option('--song')?'selection-complete':report.preservedPages?.length?'complete-with-preserved-pages':'complete';report.current=null;report.updatedAt=new Date().toISOString();await atomic(reportFile,report);log({event:'complete',status:report.status,editions:report.completed.length,pages:report.completed.reduce((n,p)=>n+p.pages,0)});
- }catch(error){report.status='blocked';report.failure={message:error.message,status:error.status,at:new Date().toISOString()};await atomic(reportFile,report);throw error;}
+ }catch(error){const disposition=serviceFailureDisposition(error,report.consecutiveServicePauses||0);Object.assign(report,disposition);report.failure={message:error.message,status:error.status,method:error.apiMethod,path:error.apiPath,current:report.current,at:new Date().toISOString()};await atomic(reportFile,report);if(report.status==='paused'){log({event:'service-unavailable-paused',...report.failure,completedEditions:report.completed.length,consecutiveServicePauses:report.consecutiveServicePauses});return;}throw error;}
  finally{await browser?.close();await lock.close();await unlink(lockPath).catch(()=>{});}
 }
-if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))runAccompaniment().catch(error=>{console.error(JSON.stringify({error:error.message,status:error.status}));process.exitCode=1;});
+if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))runAccompaniment().catch(error=>{console.error(JSON.stringify({error:error.message,status:error.status,method:error.apiMethod,path:error.apiPath}));process.exitCode=1;});
 

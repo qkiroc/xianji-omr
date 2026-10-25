@@ -1,3 +1,4 @@
+import {resilientRequest} from './resilient-request.mjs';
 import {readFile,writeFile,mkdir,rename,cp} from 'node:fs/promises';
 import {join,resolve,dirname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -50,8 +51,8 @@ async function previews(plan){
 }
 async function connect(plan){
  process.env.XDG_CONFIG_HOME=join(root,'../cli-config');const credential=await readCredential(plan.origin);if(!credential)throw Error('CLI authorization missing');
- const request=client(plan.origin,credential.token);
- const api=async(path,value,method='POST')=>{for(let i=0;;i++){try{return await limitedJSON(await request(path,value===undefined?{}:jsonBody(value,method)));}catch(e){if(e.status!==429||i>=20)throw e;await new Promise(r=>setTimeout(r,600+Math.min(i*150,2000)));}}};
+ const request=resilientRequest(client(plan.origin,credential.token));
+ const api=async(path,value,method='POST')=>limitedJSON(await request(path,value===undefined?{}:jsonBody(value,method)));
  await api('/api/v2/datasets/'+plan.datasetId+'/songs');return{api,request};
 }
 export async function uploadEdition({plan,job,profile,directory,result,api,request,revision=LAYOUT_REVISION,renameSong=false,sourceDirectory=join(batch,job.id),backupDirectory=join(revisionDir,'previous-states')}){
@@ -70,7 +71,7 @@ export async function uploadEdition({plan,job,profile,directory,result,api,reque
   let entry=state.newPages.find(p=>p.pageIndex===page.pageIndex),value;
   const identical=remote.find(p=>p.name===page.filename&&p.checksum===page.sha256);
   if(entry||identical)value=await api('/api/v2/pages/'+(entry?.pageId||identical.id));
-  else for(let attempt=0;;attempt++){try{value=await limitedJSON(await request('/api/v2/songs/'+state.songId+'/pages',{method:'POST',headers:{'Content-Type':'image/png','X-File-Name':encodeURIComponent(page.filename)},body:bytes}));break;}catch(e){if(e.status!==429||attempt>=20)throw e;await new Promise(r=>setTimeout(r,1000+Math.min(attempt*100,2000)));}}
+  else value=await limitedJSON(await request('/api/v2/songs/'+state.songId+'/pages',{method:'POST',headers:{'Content-Type':'image/png','X-File-Name':encodeURIComponent(page.filename)},body:bytes}));
   if(value.image.checksum!==page.sha256||value.image.width!==page.width||value.image.height!==page.height)throw Error('Replacement image differs');
   if(!entry){entry={pageIndex:page.pageIndex,pageId:value.image.id,sha256:page.sha256,filename:page.filename,status:'uploaded'};state.newPages.push(entry);await save();}
   if(value.image.status!=='confirmed'){
