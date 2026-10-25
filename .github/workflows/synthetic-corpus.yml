@@ -56,7 +56,7 @@ jobs:
       OMR_CLI_TOKEN: ${{ secrets.OMR_CLI_TOKEN }}
       GH_TOKEN: ${{ github.token }}
       LIMIT: ${{ inputs.limit || '585' }}
-      RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+      RESUME_RUN_ID: ${{ inputs.resume_run_id || (contains(github.event.head_commit.message, '[checkpoint:40185285921]') && '40185285921') || '' }}
     steps:
       - uses: actions/checkout@v7
         with:

@@ -14,6 +14,9 @@ jobs:
   geometry:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: write
     env:
       OMR_ASSET_KEY: ${{ secrets.OMR_ASSET_KEY }}
     steps:
@@ -34,3 +37,20 @@ jobs:
           node .artifacts/synthetic-renderer/node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Render and verify all three editions of six regression songs
         run: node tools/synthetic/verify-music-geometry.mjs
+
+      - name: Stop superseded production after geometry passes and verify checkpoint preservation
+        if: contains(github.event.head_commit.message, '[replace-run:40185285921]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          previous=40185285921
+          status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous" --jq '.status')
+          if [[ "$status" != 'completed' ]]; then gh run cancel "$previous" --repo "$GITHUB_REPOSITORY"; fi
+          for attempt in $(seq 1 90); do
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous/artifacts" --jq '[.artifacts[] | select(.name=="synthetic-checkpoint" and .expired==false)] | length')
+            if [[ "$count" -gt 0 ]]; then echo "Latest checkpoint from superseded production is preserved."; exit 0; fi
+            sleep 2
+          done
+          echo 'No checkpoint was preserved. The replacement requires this exact checkpoint and will stop during restore.'
+          exit 1
