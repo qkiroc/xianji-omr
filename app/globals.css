@@ -1291,3 +1291,12 @@ label:not([class*="ant-"]) > .ant-select { display: inline-flex; width: 100%; ma
   .review-trend-metrics strong { font-size: 22px; }
   .review-trend-note { padding-inline: 4px; }
 }
+
+/* Training telemetry and inference workspace. */
+.training-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:16px}
+.training-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.training-previews{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:16px}
+.training-previews .ant-image{display:block;margin-top:8px}
+.model-lab-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:16px;margin-top:16px;align-items:start}
+@media(max-width:1100px){.training-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.training-charts,.model-lab-grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){.training-stats{grid-template-columns:minmax(0,1fr)}}

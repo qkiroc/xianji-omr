@@ -13,3 +13,6 @@ config.json
 # Original score materials are stored only in encrypted cloud assets.
 downloads/
 
+
+__pycache__/
+*.py[cod]

@@ -29,6 +29,13 @@ jobs:
           fi
           echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
       - run: pg_dump --version
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify local training data, outbox and inference geometry
+        run: |
+          python -m pip install pillow numpy
+          python test/training-python.test.py -v
       - run: npm run typecheck
       - run: npm run build
         id: build

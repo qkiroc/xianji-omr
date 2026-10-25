@@ -98,9 +98,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Menu
               mode="inline"
               selectedKeys={[
-                path.startsWith("/localization") ? "localization" : "layout",
+                path.startsWith("/training") ? "training" : path.startsWith("/models") ? "models" : path.startsWith("/localization") ? "localization" : "layout",
               ]}
               items={[
+                { key: "training", icon: <Icon name="layers" />, label: "模型训练" },
+                { key: "models", icon: <Icon name="locate" />, label: "图片推理" },
                 {
                   key: "layout",
                   icon: <Icon name="crop" />,
@@ -113,7 +115,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 },
               ]}
               onClick={({ key }) =>
-                go(key === "layout" ? "/datasets" : "/localization/datasets")
+                go(key === "training" ? "/training" : key === "models" ? "/models" : key === "layout" ? "/datasets" : "/localization/datasets")
               }
             />
           </nav>

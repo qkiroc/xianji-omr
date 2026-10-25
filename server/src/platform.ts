@@ -1,3 +1,4 @@
+import { registerTraining } from "./training.ts";
 import { registerDeletion } from "./deletion.ts";
 import { registerLocalization } from "./localization/api.ts";
 import { registerRegionReview } from "./region-review.ts";
@@ -25,7 +26,7 @@ export function createPlatform(deps: any) {
   router.exporter = exporter;
   // Router-specific parser leaves image streams to the upload handler.
   router.use((req: any, res: any, next: any) => {
-    if (req.method === "POST" && /^\/songs\/[^/]+\/pages$/.test(req.path))
+    if (req.method === "POST" && (/^\/songs\/[^/]+\/pages$/.test(req.path) || /^\/training\/runs\/[^/]+\/artifacts\/[^/]+$/.test(req.path)))
       return next();
     express.json({ limit: "2mb" })(req, res, next);
   });
@@ -40,6 +41,7 @@ export function createPlatform(deps: any) {
   });
   const deletion = registerDeletion(router, deps);
   (router as any).deletion = deletion;
+  registerTraining(router, deps);
   registerLocalization(router, deps);
   registerDatasets(router, deps);
   registerSongCatalogue(router, { pool });

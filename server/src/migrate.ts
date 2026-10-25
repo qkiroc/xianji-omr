@@ -10,7 +10,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-export const SCHEMA = 9,
+export const SCHEMA = 10,
   LOCK = 79142602;
 export async function files(
   dir: any = new URL("../migrations/", import.meta.url),
@@ -24,7 +24,7 @@ export async function files(
         throw Error("MIGRATION_SEQUENCE");
       const sql = await readFile(new URL(name, dir), "utf8");
       if (
-        !sql.startsWith("-- compatibility: expand\n") ||
+        !(sql.startsWith("-- compatibility: expand\n") || sql.startsWith("-- compatibility: expand\r\n")) ||
         /\b(DROP|TRUNCATE|DELETE|COMMIT|ROLLBACK|VACUUM|CONCURRENTLY)\b/i.test(
           sql
             .replace(/\$\$[\s\S]*?\$\$/g, "")

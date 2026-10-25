@@ -83,3 +83,8 @@ node tools/cli/xianji-omr.mjs platform status --origin https://omr.example.com
 ```
 
 CLI只请求平台HTTP接口；ECS固定拉取main并执行既有受限构建、备份、迁移和健康检查。任务由独立systemd控制器执行，平台重启后可以继续查询，无需本机SSH或部署包。需单独授予platform:deploy权限。完整说明见 [CLI部署文档](tools/cli/README.md#通过平台-api-部署070schema9)。
+
+
+## 本地训练与模型评估
+
+新增训练监控和图片推理模块，运行方式与部署前置条件见 [训练说明](tools/training/README.md)。平台需升级至 schema10；本机可双击 `start-training.cmd` 启动。
