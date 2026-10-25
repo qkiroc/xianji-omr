@@ -1,0 +1,110 @@
+name: Resolve reviewed synthetic pages
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        type: boolean
+        default: false
+        description: Apply the committed exact geometry review
+      resume_run_id:
+        type: string
+        required: false
+        description: Encrypted checkpoint run for recovery
+  push:
+    branches: [main]
+    paths:
+      - tools/synthetic/resolve-preserved.mjs
+      - tools/synthetic/reviewed-pages.mjs
+      - tools/synthetic/approved-preserved-review.json
+      - .github/workflows/synthetic-preserved-resolve.yml
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-corpus-production
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Check resolution syntax and regression coverage
+        run: |
+          node --check tools/synthetic/resolve-preserved.mjs
+          node --test test/synthetic-*.test.mjs
+  resolve:
+    if: (github.event_name == 'workflow_dispatch' && inputs.apply) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[apply-preserved-review]'))
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: write
+    env:
+      OMR_ASSET_KEY: ${{ secrets.OMR_ASSET_KEY }}
+      OMR_CLI_TOKEN: ${{ secrets.OMR_CLI_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      RESUME_RUN_ID: ${{ inputs.resume_run_id || '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Restore latest encrypted checkpoint
+        id: restore
+        run: |
+          set -euo pipefail
+          prior="$RESUME_RUN_ID"
+          if [[ -z "$prior" && "$GITHUB_RUN_ATTEMPT" -gt 1 ]]; then prior="$GITHUB_RUN_ID"; fi
+          if [[ -z "$prior" ]]; then
+            prior=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq "[.artifacts[] | select(.name==\"synthetic-checkpoint\" and .expired==false and .workflow_run.id != ($GITHUB_RUN_ID|tonumber))] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty")
+          fi
+          [[ "$prior" =~ ^[0-9]+$ ]]
+          gh run download "$prior" --name synthetic-checkpoint --dir .artifacts/review-resolve-resume
+          node tools/synthetic/bootstrap-cloud.mjs --checkpoint .artifacts/review-resolve-resume
+      - name: Install pinned renderer, browser and fonts
+        run: |
+          npm ci --prefix .artifacts/synthetic-renderer --ignore-scripts
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk fonts-arphic-ukai fonts-arphic-uming fonts-liberation
+          node .artifacts/synthetic-renderer/node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Apply exact reviewed geometry, finish the missing edition and verify readback
+        run: node tools/synthetic/resolve-preserved.mjs --apply
+      - name: Encrypt reviewed checkpoint
+        id: checkpoint
+        if: always() && steps.restore.outcome == 'success'
+        run: node tools/synthetic/pack-cloud.mjs --checkpoint --output .artifacts/review-resolved-checkpoint
+      - name: Preserve encrypted checkpoint
+        id: upload
+        if: always() && steps.checkpoint.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: synthetic-checkpoint
+          path: .artifacts/review-resolved-checkpoint/*
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: error
+      - name: Summarize reviewed result
+        if: always() && steps.restore.outcome == 'success'
+        run: |
+          node --input-type=module <<'JS'
+          import {readFile,appendFile} from 'node:fs/promises';
+          const p=JSON.parse(await readFile('.artifacts/synthetic-renderer/audition-195-batch/accompaniment-revision-v3/progress.json','utf8'));
+          await appendFile(process.env.GITHUB_STEP_SUMMARY,'Status: '+p.status+'\n\nCompleted editions: '+p.completed.length+' / 585\n\nPages: '+p.completed.reduce((n,x)=>n+x.pages,0)+'\n\nPreserved editions: '+(p.preservedEditions?.length||0)+'\n\nPreserved pages: '+(p.preservedPages?.length||0)+'\n\nReviewed verification: '+JSON.stringify(p.reviewResolution||p.failure||{})+'\n');
+          JS
+      - name: Continue a checkpointed service pause
+        if: success() && steps.upload.outcome == 'success'
+        run: |
+          state=$(node --input-type=module -e 'import{readFile}from"node:fs/promises";console.log(JSON.parse(await readFile(".artifacts/synthetic-renderer/audition-195-batch/accompaniment-revision-v3/progress.json","utf8")).status)')
+          if [[ "$state" == 'paused' ]]; then
+            gh workflow run synthetic-preserved-resolve.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" -f apply=true -f resume_run_id="$GITHUB_RUN_ID"
+          fi

@@ -1,0 +1,119 @@
+{
+  "reviewId": "preserved-geometry-20261026-v1",
+  "datasetId": "a45815a1-22a7-44d5-b201-fd2e794f4736",
+  "basis": "Actual CLI readback and source PNG checksums; numbered notation and lyric SVG ink geometry. User delegated review and correction.",
+  "pages": [
+    {
+      "sourceId": "trial-xiao-xing-yun",
+      "profileId": "synth195-02",
+      "pageIndex": 3,
+      "fingerprint": {
+        "pageId": "2b29b355-19fe-4ee1-b3d0-8e0a62ec6cb4",
+        "datasetId": "a45815a1-22a7-44d5-b201-fd2e794f4736",
+        "songId": "ebd2efb3-1235-4989-b5c2-33d6b6da56df",
+        "checksum": "ce1962f8cd52c34156e25bdb561c9c6f23af0f53cfc8342d8b406907e573351b",
+        "width": 1500,
+        "height": 2120,
+        "version": 6,
+        "status": "confirmed",
+        "source": "synthetic:audition195-20261025-v1:trial-xiao-xing-yun:synth195-02:audition195-accompaniment-v3",
+        "annotationSha256": "251bc9c63e6667535ccb60e0176e9e37e07e2137e90707f85f0364b8955e57c1",
+        "deletedBoxesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "desiredAnnotationHash": "0c3423261d6e34d822b3343147f888dfed8e7f8dbe2c7e63728e64ca630c0d35"
+    },
+    {
+      "sourceId": "trial-xiao-xing-yun",
+      "profileId": "synth195-03",
+      "pageIndex": 0,
+      "fingerprint": {
+        "pageId": "f1a2297f-e0d0-4938-a78b-416d4b7cad73",
+        "datasetId": "a45815a1-22a7-44d5-b201-fd2e794f4736",
+        "songId": "52651440-00f6-485f-9192-8951f5c05b3c",
+        "checksum": "bd8d86f37385d79204173cbd60c328e0452eb684896d789479b763e817dc4e36",
+        "width": 1500,
+        "height": 2120,
+        "version": 6,
+        "status": "confirmed",
+        "source": "synthetic:audition195-20261025-v1:trial-xiao-xing-yun:synth195-03:audition195-accompaniment-v3",
+        "annotationSha256": "079addc713b8f96963fc5f0416f65f1d4ba7ef67946054e7b44786d8b83069f3",
+        "deletedBoxesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "desiredAnnotationHash": "cca08f7c7b3362f17145753e3006f8d30fed65ee6f83a486d1e5479f4855cebb"
+    },
+    {
+      "sourceId": "trial-gu-niang-bie-ku-qi",
+      "profileId": "synth195-02",
+      "pageIndex": 4,
+      "fingerprint": {
+        "pageId": "9495575d-5847-4d63-9158-472798626cd7",
+        "datasetId": "a45815a1-22a7-44d5-b201-fd2e794f4736",
+        "songId": "617a4580-341e-46f7-a2cf-69a1aac6fb08",
+        "checksum": "94636ead6b5eaf6aff09db45e7da42b49608061b115a25902e7fff77b52d0232",
+        "width": 1500,
+        "height": 2120,
+        "version": 6,
+        "status": "confirmed",
+        "source": "synthetic:audition195-20261025-v1:trial-gu-niang-bie-ku-qi:synth195-02:audition195-accompaniment-v3",
+        "annotationSha256": "bd4aba00ee1ff1c07632bcdb8123b10888e39d2eae6afe3471c65ff2fafdef70",
+        "deletedBoxesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "desiredAnnotationHash": "19a1a435ebfb870e2438c0d137128b100b102c6d80097231d1ac7c39a7bd57b8"
+    }
+  ],
+  "edition": {
+    "sourceId": "trial-mo-te",
+    "profileId": "synth195-03",
+    "expectedPageCount": 5,
+    "pages": [
+      {
+        "pageIndex": 0,
+        "fingerprint": {
+          "pageId": "934d3049-1ffb-40cf-871d-bb3db9207898",
+          "datasetId": "a45815a1-22a7-44d5-b201-fd2e794f4736",
+          "songId": "50b60b21-c7cc-40e1-b689-ee1bd2421ba9",
+          "checksum": "3893e246988235287bf3b515b5d75d2f383f8d1c9a42ece5ff455cf6c564f990",
+          "width": 1500,
+          "height": 2120,
+          "version": 3,
+          "status": "confirmed",
+          "source": "synthetic:audition195-20261025-v1:trial-mo-te:synth195-03",
+          "annotationSha256": "08567e02be9436ee2a598c8e168d34378f27c6e38697afae6faf1226177e81c5",
+          "deletedBoxesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      {
+        "pageIndex": 1,
+        "fingerprint": {
+          "pageId": "bd6b57ff-6a91-4749-b86f-164c46f9ee31",
+          "datasetId": "a45815a1-22a7-44d5-b201-fd2e794f4736",
+          "songId": "50b60b21-c7cc-40e1-b689-ee1bd2421ba9",
+          "checksum": "58b59a2e53753610719a227103c208ba8d912e3f46bf26898a4e94027d0f0a80",
+          "width": 1500,
+          "height": 2120,
+          "version": 3,
+          "status": "confirmed",
+          "source": "synthetic:audition195-20261025-v1:trial-mo-te:synth195-03",
+          "annotationSha256": "7d04548b1b8047a99977424c38226037fa59de39ef26d88de627e9bc82d195a3",
+          "deletedBoxesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      {
+        "pageIndex": 2,
+        "fingerprint": {
+          "pageId": "c79f28bc-2ad3-4560-a70b-764ff37567aa",
+          "datasetId": "a45815a1-22a7-44d5-b201-fd2e794f4736",
+          "songId": "50b60b21-c7cc-40e1-b689-ee1bd2421ba9",
+          "checksum": "bbf60d00bbc3e14d7cdb97d8e70e236b68cab16f270efba9fa656053168c0d22",
+          "width": 1500,
+          "height": 2120,
+          "version": 2,
+          "status": "draft",
+          "source": "synthetic:audition195-20261025-v1:trial-mo-te:synth195-03",
+          "annotationSha256": "fc7854b8e65b8999ed497a766b717c1f702c1f3a6761348e6db79fdb85c5e0f9",
+          "deletedBoxesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      }
+    ]
+  }
+}

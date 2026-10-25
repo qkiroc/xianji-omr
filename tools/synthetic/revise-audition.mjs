@@ -1,3 +1,4 @@
+import {hasReviewedRemoval} from './reviewed-pages.mjs';
 import {editionConflict,isEditionConflict,replacementIsTerminal} from './edition-conflicts.mjs';
 import {annotationHash} from './reconcile-completed.mjs';
 import {resilientRequest} from './resilient-request.mjs';
@@ -102,7 +103,7 @@ async function replaceEdition({plan,job,profile,directory,result,api:remoteApi,r
  const validateOldPage=async old=>{
   const value=await api('/api/v2/pages/'+old.pageId),image=value.image;
   const pristine=old.status==='uploaded'&&old.version===undefined&&image.version===1&&image.status==='draft'&&!value.boxes.length&&!image.source;
-  const synthetic=image.version===old.version&&image.status==='confirmed'&&value.boxes.every(b=>b.reviewStatus==='confirmed')&&image.source?.startsWith('synthetic:'+plan.revision+':'+job.id+':'+profile.id)&&(!old.annotationSha256||old.annotationSha256===annotationHash(value));
+  const synthetic=image.version===old.version&&(image.status==='confirmed'&&value.boxes.every(b=>b.reviewStatus==='confirmed')||hasReviewedRemoval(old,value))&&image.source?.startsWith('synthetic:'+plan.revision+':'+job.id+':'+profile.id)&&(!old.annotationSha256||old.annotationSha256===annotationHash(value));
   if(image.datasetId!==plan.datasetId||image.checksum!==old.sha256||(!pristine&&!synthetic))throw editionConflict('Previously imported page was changed; preserving it',{pageId:old.pageId,expected:old,actual:image,actualBoxCount:value.boxes.length});
  };
  if(state.phase==='upload')for(const old of state.oldPages)await validateOldPage(old);

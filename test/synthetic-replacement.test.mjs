@@ -1,3 +1,4 @@
+import {reviewedFingerprint,approveReviewedRemoval} from '../tools/synthetic/reviewed-pages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
@@ -139,4 +140,15 @@ test('a lost upload response is recovered without treating the pristine upload a
 test('permission errors remain fatal and are not mislabeled as preserved edits',async t=>{
  const f=await fixture(t);await assert.rejects(f.run({api:async()=>{throw Object.assign(Error('permission denied'),{status:403});}}),e=>e.status===403);
  const disk=JSON.parse(await readFile(join(f.directory,'replacement-state.json')));assert.equal(disk.phase,'upload');assert.ok(!disk.conflict);
+});
+
+test('an explicitly reviewed interrupted draft can be superseded after new pages are confirmed',async t=>{
+ const f=await fixture(t),draft=f.values.get('old-1');draft.image.status='draft';draft.image.version=2;draft.boxes=draft.boxes.map(b=>({...b,reviewStatus:'draft'}));
+ const statePath=join(f.sourceDirectory,'state.json'),saved=JSON.parse(await readFile(statePath));saved.profiles[0].pages[0]=approveReviewedRemoval(saved.profiles[0].pages[0],draft,reviewedFingerprint(draft),'review-1');await writeFile(statePath,JSON.stringify(saved));
+ const result=await f.run();assert.equal(result.phase,'complete');assert.ok(!f.values.has('old-1'));assert.equal(f.values.get('new-1').image.status,'confirmed');
+});
+test('a draft changed after explicit review is preserved without uploading or deleting anything',async t=>{
+ const f=await fixture(t),draft=f.values.get('old-1');draft.image.status='draft';draft.image.version=2;draft.boxes=draft.boxes.map(b=>({...b,reviewStatus:'draft'}));
+ const statePath=join(f.sourceDirectory,'state.json'),saved=JSON.parse(await readFile(statePath));saved.profiles[0].pages[0]=approveReviewedRemoval(saved.profiles[0].pages[0],draft,reviewedFingerprint(draft),'review-1');await writeFile(statePath,JSON.stringify(saved));
+ draft.boxes[0].x++;const result=await f.run();assert.equal(result.phase,'preserved');assert.ok(f.values.has('old-1'));assert.equal(f.uploads,0);
 });
