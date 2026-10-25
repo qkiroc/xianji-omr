@@ -51,7 +51,7 @@ export function createPlatform(deps: any) {
     res.json(
       (
         await pool.query(
-          "SELECT id,status,progress,error,created_at,completed_at,frozen,artifacts,manifest FROM omr_snapshots WHERE dataset_id=$1 ORDER BY created_at DESC LIMIT 30",
+          "SELECT id,status,progress,error,created_at,completed_at,frozen->'stats' AS stats,frozen->'warnings' AS warnings,frozen->'selection' AS selection,artifacts,manifest->>'datasetFingerprint' AS dataset_fingerprint FROM omr_snapshots WHERE dataset_id=$1 ORDER BY created_at DESC LIMIT 30",
           [req.params.datasetId],
         )
       ).rows.map((r: any) => ({
@@ -60,10 +60,10 @@ export function createPlatform(deps: any) {
         progress: r.progress,
         error: r.error,
         createdAt: r.created_at,
-        stats: r.frozen.stats,
-        warnings: r.frozen.warnings,
-        selection: r.frozen.selection,
-        datasetFingerprint: r.manifest?.datasetFingerprint,
+        stats: r.stats,
+        warnings: r.warnings,
+        selection: r.selection || undefined,
+        datasetFingerprint: r.dataset_fingerprint || undefined,
         artifacts: r.artifacts
           ? Object.fromEntries(
               Object.entries(r.artifacts).map(([k, v]: any) => [
@@ -87,14 +87,14 @@ export function createPlatform(deps: any) {
   router.get("/snapshots/:snapshotId", async (req: any, res: any) => {
     need(ID.test(req.params.snapshotId), "快照ID无效");
     const snapshot = (await pool.query(
-      "SELECT id,dataset_id,status,progress,error,frozen,artifacts FROM omr_snapshots WHERE id=$1",
+      "SELECT id,dataset_id,status,progress,error,frozen->'stats' AS stats,frozen->'selection' AS selection,artifacts FROM omr_snapshots WHERE id=$1",
       [req.params.snapshotId],
     )).rows[0];
     need(snapshot, "快照不存在", 404);
     res.json({
       id: snapshot.id, datasetId: snapshot.dataset_id, status: snapshot.status,
-      progress: snapshot.progress, error: snapshot.error, stats: snapshot.frozen.stats,
-      selection: snapshot.frozen.selection,
+      progress: snapshot.progress, error: snapshot.error, stats: snapshot.stats,
+      selection: snapshot.selection || undefined,
       artifacts: snapshot.artifacts ? Object.fromEntries(Object.entries(snapshot.artifacts).map(([kind, value]: any) =>
         [kind, { bytes: value.bytes, checksum: value.checksum }])) : null,
     });
