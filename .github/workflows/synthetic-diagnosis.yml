@@ -1,0 +1,33 @@
+name: Diagnose synthetic checkpoint conflict
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - tools/synthetic/diagnose-annotation-checkpoint.mjs
+      - .github/workflows/synthetic-diagnosis.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      OMR_ASSET_KEY: ${{ secrets.OMR_ASSET_KEY }}
+      OMR_CLI_TOKEN: ${{ secrets.OMR_CLI_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Read failed and prior encrypted checkpoints
+        run: |
+          gh run download 40189412223 --name synthetic-checkpoint --dir .artifacts/diagnose-current
+          gh run download 40185285921 --name synthetic-checkpoint --dir .artifacts/diagnose-prior
+      - name: Compare saved checkpoint with current platform pages through read-only CLI commands
+        run: node tools/synthetic/diagnose-annotation-checkpoint.mjs .artifacts/diagnose-current .artifacts/diagnose-prior
