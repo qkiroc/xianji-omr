@@ -64,7 +64,7 @@ export function identities({ pool, config }: any) {
   };
   const business = (req: any, res: any, next: any) => {
     const check = () => {
-      if (/^\/platform\/deployments(?:\/|$)/.test(req.path)) {
+      if (/^\/platform\/deployments(?:\/|$)/i.test(req.path)) {
         if (req.identity.kind !== "bearer" || !req.identity.scopes.includes("platform:deploy"))
           return res.status(403).json({error: "需要单独授权platform:deploy，请运行CLI auth --deploy"});
         return next();

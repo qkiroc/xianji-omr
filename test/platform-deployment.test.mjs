@@ -29,6 +29,7 @@ test('真实平台HTTP/CLI部署授权：旧凭据和Cookie不能部署，额外
  const invoke=(path,options={})=>request(f,'/api/platform/deployments'+path,options);
  assert.equal((await invoke('',{...json(body),headers:{...json(body).headers,Cookie:cookie}})).status,403);
  const normalHeader={Authorization:'Bearer '+ordinary.token};
+ for(const path of ['/api/PLATFORM/deployments','/api/platform/DEPLOYMENTS'])assert.equal((await request(f,path,{...json(body),headers:{...json(body).headers,...normalHeader}})).status,403);
  for(const [path,options]of [['',json(body)],['/latest',{}],['/'+body.requestId,{}]])assert.equal((await invoke(path,{...options,headers:{...options.headers,...normalHeader}})).status,403);
  const privileged=await grantFor(f,cookie,{scopes:['platform:deploy']}),headers={Authorization:'Bearer '+privileged.token,'Content-Type':'application/json'};
  assert.equal((await invoke('',{...json({...body,command:'evil'}),headers})).status,400);
