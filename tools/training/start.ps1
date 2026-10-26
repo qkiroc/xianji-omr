@@ -8,6 +8,7 @@ param(
  [ValidateRange(1,64)][int]$Batch = 4,
  [switch]$WorkerOnly,
  [switch]$SkipSync,
+ [switch]$ExcludeConflicts,
  [switch]$NoServe,
  [string]$Publish = '',
  [string]$Resume = ''
@@ -75,6 +76,7 @@ try {
   $trainArguments = @((Join-Path $PSScriptRoot 'train.py'),'--origin',$Origin,'--data-root',(Join-Path $OutputRoot 'data'),'--runs-root',(Join-Path $OutputRoot 'runs'),'--epochs',"$Epochs",'--imgsz',"$ImageSize",'--batch',"$Batch")
   foreach ($dataset in $DatasetIds) { $trainArguments += @('--dataset',$dataset) }
   if ($SkipSync) { $trainArguments += '--skip-sync' }
+  if ($ExcludeConflicts) { $trainArguments += '--exclude-conflicts' }
   if ($Publish) { $trainArguments += @('--publish',$Publish) }
   if ($Resume) { $trainArguments += @('--resume',$Resume) }
   if (-not $NoServe) { $trainArguments += '--serve' }

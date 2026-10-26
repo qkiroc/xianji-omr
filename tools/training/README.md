@@ -113,3 +113,22 @@ npm run build
 ```
 
 Node 接口测试使用内存存储替身，验证状态流转、所有权、原子事件回放和发布门槛；不替代真实 PostgreSQL/OSS 集成测试。首次真实训练还需验证 CUDA、Ultralytics 回调和导出的 ONNX。在网络/依赖齐备的环境完成构建、数据库迁移和网页联调后再部署使用。
+
+## 透明图片与重复标注
+
+带透明度的谱图先与白底合成 RGB，再计算可见像素指纹；准备给 YOLO 的图片也保存为无透明通道的 RGB PNG。原始下载缓存保持不变，推理使用相同的白底处理。数据准备版本 2 使用新的目录指纹，避免复用旧黑图缓存。
+
+同一张可见图片有不同标注时，默认仍停止，并将完整冲突组写入 `data/conflicts/<源数据指纹>.json`。检查报告后，可以显式使用 `-ExcludeConflicts`：整个冲突组中的所有副本都会从本次训练中排除，平台标注、原始图片及下载清单保持不变。排除数、报告路径和图片转换数写入训练审计及平台数据统计；不会自动选一套标注作为真值。
+
+数据已完整下载时，无需重新同步：
+
+```powershell
+.\start-training.cmd -OutputRoot E:\xianji-omr\.artifacts\training -SkipSync -ExcludeConflicts
+```
+
+可独立检查数据，或将准备结果写入其他目录：
+
+```powershell
+.artifacts/training/.venv/Scripts/python.exe tools/training/prepare_dataset.py --data-root .artifacts/training/data --exclude-conflicts
+# --output-root 仅更改 prepared、conflicts 和 prepared-latest.json 的保存目录，源数据仍从 --data-root 读取。
+```

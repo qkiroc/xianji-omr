@@ -76,7 +76,7 @@ def main():
     p.add_argument('--runs-root',default=str(ROOT/'.artifacts/training/runs'));p.add_argument('--dataset',action='append',default=[])
     p.add_argument('--epochs',type=int,default=100);p.add_argument('--imgsz',type=int,choices=[640,960,1280,1536],default=1280)
     p.add_argument('--batch',type=int,default=4);p.add_argument('--workers',type=int,default=2)
-    p.add_argument('--skip-sync',action='store_true');p.add_argument('--prepare-only',action='store_true');p.add_argument('--serve',action='store_true')
+    p.add_argument('--exclude-conflicts',action='store_true');p.add_argument('--skip-sync',action='store_true');p.add_argument('--prepare-only',action='store_true');p.add_argument('--serve',action='store_true')
     p.add_argument('--publish',metavar='RUN_DIRECTORY');p.add_argument('--resume',metavar='RUN_DIRECTORY')
     args=p.parse_args()
     if args.publish:
@@ -93,8 +93,9 @@ def main():
             command=['node']+([proxy_flag] if proxy_flag else [])+[str(ROOT/'tools/training/sync-confirmed.mjs'),'--origin',args.origin,'--output',args.data_root]
             for dataset in args.dataset:command+=['--dataset',dataset]
             subprocess.run(command,check=True,cwd=ROOT)
-        prepared,summary=prepare(args.data_root)
-        if args.prepare_only:print(json.dumps({'directory':str(prepared),**summary},ensure_ascii=False));return
+        prepared,summary=prepare(args.data_root,exclude_conflicts=args.exclude_conflicts)
+        print(json.dumps({'event':'dataset-ready','directory':str(prepared),**summary},ensure_ascii=False),flush=True)
+        if args.prepare_only:return
         directory=Path(args.runs_root).resolve()/str(uuid.uuid4());directory.mkdir(parents=True,exist_ok=True)
         meta={'id':directory.name,'name':'Layout '+time.strftime('%Y-%m-%d %H:%M'),'origin':args.origin,'prepared':str(prepared),'fingerprint':summary['fingerprint'],
               'categories':summary['categories'],'config':{'model':'yolo11s.pt','epochs':args.epochs,'imgsz':args.imgsz,'batch':args.batch,'seed':42},'datasetSummary':summary}

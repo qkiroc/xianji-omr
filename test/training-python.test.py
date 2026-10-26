@@ -1,4 +1,4 @@
-import sys,unittest,tempfile,json,hashlib,copy,io
+import sys,unittest,tempfile,json,hashlib,copy,io,warnings
 from pathlib import Path
 from PIL import Image
 import numpy as np
@@ -6,13 +6,14 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/training'))
 from prepare_dataset import prepare,save_json
 from platform_client import Reporter
 from inference import nms,Detector
+from image_rgb import rgb_on_white,needs_rgb_normalization
 
 TESTROOT=Path(__file__).resolve().parents[1]/'.test-data/training-python'
 TESTROOT.mkdir(parents=True,exist_ok=True)
 
 class TrainingTests(unittest.TestCase):
- def sample(self,root,number,group,split='train',color=None):
-  data=io.BytesIO();Image.new('RGB',(100,60),color or (number*20,number*15,number*10)).save(data,format='PNG');b=data.getvalue();sha=hashlib.sha256(b).hexdigest()
+ def sample(self,root,number,group,split='train',color=None,image=None):
+  data=io.BytesIO();(image if image is not None else Image.new('RGB',(100,60),color or (number*20,number*15,number*10))).save(data,format='PNG');b=data.getvalue();sha=hashlib.sha256(b).hexdigest()
   path=root/'assets'/(sha+'.png');path.parent.mkdir(exist_ok=True);path.write_bytes(b)
   asset={'checksum':sha,'bytes':len(b),'width':100,'height':60,'mime':'image/png'}
   return {'image':{'id':str(number),'status':'confirmed','pageType':'music','width':100,'height':60,'coordinate':{'original':asset,'working':asset}},'boxes':[{'classKey':'guitar','x':10,'y':10,'width':70,'height':40}],'workingPath':'assets/'+sha+'.png','originalPath':'assets/'+sha+'.png','songGroupKey':group,'split':split,'sourceKind':'confirmed_other'}
@@ -69,6 +70,68 @@ class TrainingTests(unittest.TestCase):
    r.stop_event.set();r.thread.join();self.assertEqual(len(r.events),2)
    r2=Reporter(api,'id',d);api.fail=False;r2.close();self.assertEqual([e['seq'] for e in api.seen],[1,2])
    r3=Reporter(api,'id',d);r3.close();self.assertEqual(len(api.seen),2)
+
+ def test_transparent_ink_is_compared_and_trained_on_white_not_black(self):
+  with tempfile.TemporaryDirectory(dir=TESTROOT) as d:
+   root=Path(d)
+   a=Image.new('RGBA',(100,60),(0,0,0,0));a.paste((0,0,0,255),(10,10,80,50))
+   b=Image.new('RGBA',(100,60),(0,0,0,0));b.paste((0,0,0,255),(20,10,90,50))
+   self.assertEqual(a.convert('RGB').tobytes(),b.convert('RGB').tobytes())
+   samples=[self.sample(root,1,'a',image=a),self.sample(root,2,'b',image=b),self.sample(root,3,'c')]
+   samples[1]['boxes'][0]['x']=20
+   manifest=self.manifest(root,samples)
+   out,audit=prepare(root,manifest);self.assertEqual(audit['normalizedPages'],2);self.assertEqual(audit['duplicatesRemoved'],0)
+   self.assertEqual(audit['imageNormalization'],'rgb-on-white-v1')
+   index=json.loads((out/'index.json').read_text())
+   row=next(s for s in index if s['pageId']=='1')
+   with Image.open(out/row['path']) as trained:
+    self.assertEqual(trained.mode,'RGB');self.assertEqual(trained.getpixel((0,0)),(255,255,255));self.assertEqual(trained.getpixel((20,20)),(0,0,0))
+    expected=np.asarray(trained,dtype=np.float32).transpose(2,0,1)[None]/255
+   with Image.open(root/samples[0]['workingPath']) as original:self.assertEqual(original.mode,'RGBA')
+   again,_=prepare(root,manifest);self.assertEqual(out,again)
+   class Session:
+    def run(self,outputs,feed):
+     self.tensor=feed['images'].copy()
+     return [np.zeros((1,5,1),dtype=np.float32)]
+   detector=object.__new__(Detector);detector.w=100;detector.h=60;detector.input='images';detector.categories=[{'id':0,'key':'guitar'}];detector.session=Session()
+   data=io.BytesIO();a.save(data,format='PNG');boxes,_=detector.predict(data.getvalue())
+   self.assertEqual(boxes,[]);np.testing.assert_array_equal(detector.session.tensor,expected)
+   Image.new('RGB',(100,60),'black').save(out/row['path'])
+   with self.assertRaisesRegex(ValueError,'Prepared image was modified'):prepare(root,manifest)
+
+ def test_palette_transparency_and_grayscale_alpha_render_without_warning(self):
+  image=Image.new('P',(10,10),0);image.putpalette([0,0,0]*256);image.putpixel((5,5),1)
+  image.info['transparency']=bytes([0,255]+[255]*254)
+  with warnings.catch_warnings(record=True) as observed:
+   warnings.simplefilter('always');rgb=rgb_on_white(image)
+  self.assertEqual(observed,[]);self.assertTrue(needs_rgb_normalization(image))
+  self.assertEqual(rgb.getpixel((0,0)),(255,255,255));self.assertEqual(rgb.getpixel((5,5)),(0,0,0))
+  gray=Image.new('LA',(2,1),(0,0));gray.putpixel((1,0),(0,128))
+  self.assertEqual([rgb_on_white(gray).getpixel((x,0)) for x in range(2)],[(255,255,255),(127,127,127)])
+  self.assertFalse(needs_rgb_normalization(Image.new('RGB',(1,1))))
+
+ def test_opaque_and_alpha_encoded_copies_deduplicate_by_visible_pixels(self):
+  with tempfile.TemporaryDirectory(dir=TESTROOT) as d:
+   root=Path(d);alpha=Image.new('RGBA',(100,60),(0,0,0,0));alpha.paste((0,0,0,255),(10,10,80,50))
+   samples=[self.sample(root,1,'a',image=alpha),self.sample(root,2,'a',image=rgb_on_white(alpha)),self.sample(root,3,'c'),self.sample(root,4,'d')]
+   out,audit=prepare(root,self.manifest(root,samples))
+   self.assertEqual(audit['duplicatesRemoved'],1);index=json.loads((out/'index.json').read_text())
+   self.assertEqual(next(s for s in index if s['pageId']=='1')['aliases'],['1','2'])
+
+ def test_explicit_conflict_exclusion_removes_every_copy_and_preserves_sources(self):
+  with tempfile.TemporaryDirectory(dir=TESTROOT) as d:
+   root=Path(d);a=self.sample(root,1,'a');b=copy.deepcopy(a);b['image']['id']='2';b['boxes'][0]['x']=11
+   c=copy.deepcopy(a);c['image']['id']='3'
+   samples=[a,b,c,self.sample(root,4,'d'),self.sample(root,5,'e'),self.sample(root,6,'f')]
+   manifest=self.manifest(root,samples)
+   with self.assertRaisesRegex(ValueError,'conflicting labels'):prepare(root,manifest)
+   report=json.loads((root/'conflicts'/('a'*64+'.json')).read_text());self.assertEqual(report['excludedPageIds'],[])
+   out,audit=prepare(root,manifest,exclude_conflicts=True)
+   self.assertEqual(audit['sourcePages'],6);self.assertEqual(audit['excludedConflictingPages'],3);self.assertEqual(audit['duplicatesRemoved'],0)
+   report=json.loads(Path(audit['conflictReport']).read_text());self.assertEqual(report['excludedPageIds'],['1','2','3'])
+   self.assertEqual({s['pageId'] for s in json.loads((out/'index.json').read_text())},{'4','5','6'})
+   self.assertEqual(hashlib.sha256((root/a['workingPath']).read_bytes()).hexdigest(),a['image']['coordinate']['working']['checksum'])
+   self.assertEqual(len(json.loads(manifest.read_text())['samples']),6)
 
 class ExportTests(unittest.TestCase):
  def test_export_uses_frozen_data_and_validates_onnx_before_publication(self):

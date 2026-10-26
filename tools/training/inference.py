@@ -2,6 +2,7 @@
 import io,time
 import numpy as np
 from PIL import Image
+from image_rgb import rgb_on_white
 
 def nms(boxes,scores,classes,threshold,max_det=300):
     order=scores.argsort()[::-1];keep=[]
@@ -32,7 +33,7 @@ class Detector:
         with Image.open(io.BytesIO(data)) as image:
             width,height=image.size
             if width*height>20_000_000:raise ValueError('Image exceeds 20 megapixels')
-            image=image.convert('RGB');scale=min(self.w/width,self.h/height)
+            image=rgb_on_white(image);scale=min(self.w/width,self.h/height)
             nw,nh=round(width*scale),round(height*scale)
             left,top=round((self.w-nw)/2-0.1),round((self.h-nh)/2-0.1)
             canvas=Image.new('RGB',(self.w,self.h),(114,114,114))

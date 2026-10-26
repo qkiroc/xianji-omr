@@ -2,8 +2,9 @@
 import argparse, collections, hashlib, json, os, re, shutil
 from pathlib import Path
 from PIL import Image
+from image_rgb import NORMALIZATION, needs_rgb_normalization, rgb_on_white
 
-VERSION = 1
+VERSION = 2
 Image.MAX_IMAGE_PIXELS = 50_000_000
 
 def sha_file(path):
@@ -26,8 +27,9 @@ def contained(root, name):
 def label_signature(s):
     return sorted((b['classKey'], b['x'], b['y'], b['width'], b['height']) for b in s['boxes'])
 
-def prepare(data_root, manifest_path=None):
+def prepare(data_root, manifest_path=None, *, exclude_conflicts=False, output_root=None):
     root = Path(data_root).resolve()
+    metadata_root = Path(output_root).resolve() if output_root is not None else root
     if manifest_path is None:
         pointer = json.loads((root / 'latest.json').read_text(encoding='utf-8'))
         manifest_path = contained(root, pointer['manifest'])
@@ -71,19 +73,39 @@ def prepare(data_root, manifest_path=None):
             with Image.open(path) as im:
                 if im.size != (image['width'],image['height']) or im.getexif().get(274,1)!=1:
                     raise ValueError('Dimensions/orientation disagree with annotation')
-                pixel_sha = hashlib.sha256(str(im.size).encode()+im.convert('RGB').tobytes()).hexdigest()
-            pixels[checksum] = pixel_sha
-        validated.append({**s, 'pixelSha':pixels[checksum]})
-    # Identical RGB with conflicting annotation must be reviewed, never silently selected.
+                pixel_sha = hashlib.sha256(str(im.size).encode()+rgb_on_white(im).tobytes()).hexdigest()
+                normalize_rgb = needs_rgb_normalization(im)
+            pixels[checksum] = (pixel_sha, normalize_rgb)
+        validated.append({**s, 'pixelSha':pixels[checksum][0], 'normalizeRgb':pixels[checksum][1]})
+    # Compare visible pixels after alpha compositing. Never choose one contradictory label set.
+    clusters = collections.defaultdict(list)
+    for s in validated: clusters[s['pixelSha']].append(s)
+    conflicts = []
+    for pixel_sha, items in clusters.items():
+        if any(label_signature(s) != label_signature(items[0]) for s in items[1:]):
+            conflicts.append({'pixelSha':pixel_sha,'samples':[
+                {'pageId':s['image']['id'],'name':s['image'].get('name'),'songName':s.get('songName'),
+                 'datasetId':s.get('datasetId'),'songGroupKey':s['songGroupKey'],'split':s['split'],
+                 'source':s['image'].get('source'),'workingPath':s['workingPath'],'boxes':s['boxes']}
+                for s in items]})
+    conflict_path = metadata_root/'conflicts'/(manifest['fingerprint']+'.json')
+    excluded = {item['pageId'] for c in conflicts for item in c['samples']} if exclude_conflicts else set()
+    save_json(conflict_path,{'sourceFingerprint':manifest['fingerprint'],'normalization':NORMALIZATION,
+        'policy':'exclude-all-conflicting-copies' if exclude_conflicts else 'error',
+        'groups':conflicts,'excludedPageIds':sorted(excluded)})
+    if conflicts and not exclude_conflicts:
+        raise ValueError('Identical image has conflicting labels: ' +
+            ', '.join(s['pageId'] for s in conflicts[0]['samples']) +
+            '; report: '+str(conflict_path)+'; review the report or explicitly use --exclude-conflicts')
+    retained = [s for s in validated if s['image']['id'] not in excluded]
+    if not retained: raise ValueError('No samples remain after excluding conflicting copies')
     by_pixel = {}
-    for s in validated:
+    for s in retained:
         old = by_pixel.get(s['pixelSha'])
-        if old:
-            if label_signature(old) != label_signature(s): raise ValueError('Identical image has conflicting labels: ' + s['image']['id'])
-            union(old['songGroupKey'],s['songGroupKey'])
+        if old: union(old['songGroupKey'],s['songGroupKey'])
         else: by_pixel[s['pixelSha']] = s
     groups = {}
-    for s in validated:
+    for s in retained:
         group=find(s['songGroupKey']); g=groups.setdefault(group,{'splits':set(),'real':False,'items':[]})
         g['splits'].add(s['split']); g['real'] |= s.get('sourceKind') != 'synthetic';g['items'].append(s)
     for group,g in groups.items():
@@ -105,23 +127,37 @@ def prepare(data_root, manifest_path=None):
     if not any(g['split']=='train' for g in groups.values()) or not any(g['split']=='val' for g in groups.values()):
         raise ValueError('Need independent train and val song groups; at least two groups are required')
     selected=[]; duplicate_map={}
-    for s in validated:
+    for s in retained:
         split=groups[find(s['songGroupKey'])]['split']
         if s['pixelSha'] in duplicate_map:
             duplicate_map[s['pixelSha']]['aliases'].append(s['image']['id']);continue
         item={**s,'localSplit':split,'aliases':[s['image']['id']]}
         duplicate_map[s['pixelSha']]=item;selected.append(item)
-    identity={'version':VERSION,'sourceFingerprint':manifest['fingerprint'],'samples':[(s['image']['id'],s['pixelSha'],s['localSplit']) for s in selected]}
+    identity={'version':VERSION,'normalization':NORMALIZATION,'excludedPageIds':sorted(excluded),'sourceFingerprint':manifest['fingerprint'],'samples':[(s['image']['id'],s['pixelSha'],s['localSplit']) for s in selected]}
     fingerprint=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
-    output=root/'prepared'/fingerprint
+    output=metadata_root/'prepared'/fingerprint
     class_counts={split:collections.Counter() for split in ('train','val','test')}
     stats={split:{'pages':0,'synthetic':0,'confirmedOther':0,'boxes':0} for split in ('train','val','test')}
     image_index=[]
     for s in selected:
         split=s['localSplit'];name=s['image']['id'];src=contained(root,s['workingPath'])
-        dest=output/'images'/split/(name+src.suffix);dest.parent.mkdir(parents=True,exist_ok=True)
+        dest=output/'images'/split/(name+('.png' if s['normalizeRgb'] else src.suffix));dest.parent.mkdir(parents=True,exist_ok=True)
         if dest.exists():
-            if sha_file(dest)!=s['image']['coordinate']['working']['checksum']:raise ValueError('Prepared image was modified')
+            if s['normalizeRgb']:
+                with Image.open(dest) as cached:
+                    actual = hashlib.sha256(str(cached.size).encode()+cached.tobytes()).hexdigest()
+                    if cached.mode != 'RGB' or actual != s['pixelSha']: raise ValueError('Prepared image was modified')
+            elif sha_file(dest)!=s['image']['coordinate']['working']['checksum']:raise ValueError('Prepared image was modified')
+        elif s['normalizeRgb']:
+            with Image.open(src) as image:
+                rgb = rgb_on_white(image)
+                if hashlib.sha256(str(rgb.size).encode()+rgb.tobytes()).hexdigest() != s['pixelSha']:
+                    raise ValueError('Source image changed during preparation')
+                part = dest.with_name(dest.name+'.partial')
+                try:
+                    rgb.save(part,format='PNG')
+                    os.replace(part,dest)
+                finally:part.unlink(missing_ok=True)
         else:
             try:os.link(src,dest)
             except OSError:shutil.copy2(src,dest)
@@ -136,17 +172,18 @@ def prepare(data_root, manifest_path=None):
     config={'path':output.as_posix(),'train':'images/train','val':'images/val','names':{c['id']:c['key'] for c in categories}}
     if stats['test']['pages']:config['test']='images/test'
     warnings=[]
+    if excluded:warnings.append(f"Excluded all {len(excluded)} pages from {len(conflicts)} conflicting image groups; see {conflict_path}")
     if not stats['val']['confirmedOther']:warnings.append('Validation has no non-synthetic pages; real-world quality is unmeasured')
     if not stats['test']['confirmedOther']:warnings.append('No independent real test pages')
     missing=[c['key'] for c in categories if not class_counts['train'][c['key']]]
     if missing:warnings.append('Classes absent from training: '+', '.join(missing))
-    summary={'fingerprint':fingerprint,'sourceFingerprint':manifest['fingerprint'],'splits':stats,'classCounts':{k:dict(v) for k,v in class_counts.items()},'duplicatesRemoved':len(samples)-len(selected),'splitOverrides':overrides,'warnings':warnings,'categories':[{'id':c['id'],'key':c['key']} for c in categories]}
+    summary={'fingerprint':fingerprint,'sourceFingerprint':manifest['fingerprint'],'splits':stats,'classCounts':{k:dict(v) for k,v in class_counts.items()},'sourcePages':len(samples),'imageNormalization':NORMALIZATION,'normalizedPages':sum(s['normalizeRgb'] for s in selected),'excludedConflictingPages':len(excluded),'conflictReport':str(conflict_path),'duplicatesRemoved':len(retained)-len(selected),'splitOverrides':overrides,'warnings':warnings,'categories':[{'id':c['id'],'key':c['key']} for c in categories]}
     save_json(output/'index.json',image_index);save_json(output/'audit.json',summary)
     save_json(output/'data.yaml',config)  # JSON is a strict subset of YAML.
-    save_json(root/'prepared-latest.json',{'directory':str(output),'yaml':str(output/'data.yaml'),'summary':summary})
+    save_json(metadata_root/'prepared-latest.json',{'directory':str(output),'yaml':str(output/'data.yaml'),'summary':summary})
     return output,summary
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--data-root',required=True);p.add_argument('--manifest')
-    args=p.parse_args();out,summary=prepare(args.data_root,args.manifest)
+    p=argparse.ArgumentParser();p.add_argument('--data-root',required=True);p.add_argument('--manifest');p.add_argument('--exclude-conflicts',action='store_true');p.add_argument('--output-root')
+    args=p.parse_args();out,summary=prepare(args.data_root,args.manifest,exclude_conflicts=args.exclude_conflicts,output_root=args.output_root)
     print(json.dumps({'event':'dataset-ready','directory':str(out),**summary},ensure_ascii=False))
