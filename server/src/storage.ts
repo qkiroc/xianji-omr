@@ -45,10 +45,16 @@ export function ossStorage(o: any) {
         await client()
       ).put(key, data, { headers: { "Content-Type": mime } });
     },
-    async putStream(key: any, stream: any, mime: any) {
+    async putStream(key: any, stream: any, mime: any, options: {timeout?: number; contentLength?: number} = {}) {
+      // A live incoming stream includes the user's upload time. The 20s metadata timeout
+      // is too short for detector checkpoints, even while bytes continue arriving.
       await (
         await client()
-      ).putStream(key, stream, { headers: { "Content-Type": mime } } as any);
+      ).putStream(key, stream, {
+        headers: { "Content-Type": mime },
+        timeout: options.timeout ?? 300000,
+        ...(options.contentLength === undefined ? {} : {contentLength: options.contentLength}),
+      } as any);
     },
     async getStream(key: any) {
       return (await (await client()).getStream(key)).stream;

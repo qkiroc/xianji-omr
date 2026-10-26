@@ -1,8 +1,8 @@
 """Train the layout detector locally, publish metrics/artifacts, optionally serve inference."""
 import argparse,gc,json,math,os,socket,subprocess,sys,time,uuid
 from pathlib import Path
-from prepare_dataset import prepare,save_json
-from platform_client import Platform,Reporter
+from prepare_dataset import prepare,save_json,sha_file
+from platform_client import Platform,Reporter,PlatformHTTPError
 ROOT=Path(__file__).resolve().parents[2]
 METRICS={'train/box_loss','train/cls_loss','train/dfl_loss','val/box_loss','val/cls_loss','val/dfl_loss',
  'metrics/precision(B)','metrics/recall(B)','metrics/mAP50(B)','metrics/mAP50-95(B)','lr/pg0','lr/pg1','lr/pg2'}
@@ -48,7 +48,9 @@ def publish(directory):
     directory=Path(directory).resolve();meta=json.loads((directory/'run.json').read_text(encoding='utf-8'))
     api=Platform(meta['origin'],ROOT);rid=meta['id']
     current=api.request('/api/v2/training/runs/'+rid)
-    if current['status']=='completed':return rid
+    if current['status']=='completed':
+        save_json(directory/'status.json',{'status':'completed','runId':rid,'platform':meta['origin']+'/training/'+rid})
+        return rid
     if current['status'] not in ('running','exporting'):raise RuntimeError('Run is not publishable: '+current['status'])
     if current['status']=='running':
         state_reporter=Reporter(api,rid,directory);state_reporter.emit('state',{'status':'exporting'});state_reporter.close()
@@ -58,17 +60,32 @@ def publish(directory):
     publication=json.loads((directory/'publication.json').read_text(encoding='utf-8'))
     reporter=Reporter(api,rid,directory,heartbeat=True)
     try:
+        registered={a['kind']:a for a in current.get('artifacts',[])}
         for kind,path in publication['artifacts'].items():
-            for attempt in range(3):
+            local=Path(path);size=local.stat().st_size;checksum=sha_file(local)
+            old=registered.get(kind)
+            if old:
+                if old.get('checksum')!=checksum or int(old.get('bytes',-1))!=size:
+                    raise RuntimeError('Published artifact differs from local file: '+kind)
+                print(json.dumps({'event':'artifact-already-uploaded','kind':kind,'bytes':size}),flush=True)
+                continue
+            for attempt in range(1,4):
+                print(json.dumps({'event':'artifact-upload-start','kind':kind,'bytes':size,'attempt':attempt}),flush=True)
                 try:api.upload(rid,kind,path);break
-                except Exception:
-                    if attempt==2:raise
-                    time.sleep(3)
-            print(json.dumps({'event':'artifact-uploaded','kind':kind}),flush=True)
+                except Exception as error:
+                    retryable=not isinstance(error,PlatformHTTPError) or error.status in (408,429,500,502,503,504)
+                    if attempt==3 or not retryable:raise
+                    print(json.dumps({'event':'artifact-upload-retry','kind':kind,'error':str(error)}),flush=True)
+                    time.sleep(3*attempt)
+            print(json.dumps({'event':'artifact-uploaded','kind':kind,'bytes':size}),flush=True)
     finally:reporter.close()
     api.request('/api/v2/training/runs/'+rid+'/complete',{})
     save_json(directory/'status.json',{'status':'completed','runId':rid,'platform':meta['origin']+'/training/'+rid})
     return rid
+
+def serve_worker(origin,runs_root):
+    print('Starting inference worker; keep this terminal open.',flush=True)
+    subprocess.run([sys.executable,str(ROOT/'tools/training/worker.py'),'--origin',origin,'--cache',str(Path(runs_root).resolve()/'inference-cache')],check=True)
 
 def main():
     p=argparse.ArgumentParser()
@@ -80,7 +97,11 @@ def main():
     p.add_argument('--publish',metavar='RUN_DIRECTORY');p.add_argument('--resume',metavar='RUN_DIRECTORY')
     args=p.parse_args()
     if args.publish:
-        rid=publish(args.publish);print(json.dumps({'event':'published','id':rid}));return
+        rid=publish(args.publish)
+        meta=json.loads((Path(args.publish)/'run.json').read_text(encoding='utf-8'))
+        print(json.dumps({'event':'published','id':rid,'url':meta['origin']+'/training/'+rid}),flush=True)
+        if args.serve:serve_worker(meta['origin'],args.runs_root)
+        return
     if not 1<=args.epochs<=1000 or not 1<=args.batch<=64 or not 0<=args.workers<=8:p.error('Invalid epochs/batch/workers')
     if args.resume:
         directory=Path(args.resume).resolve();meta=json.loads((directory/'run.json').read_text(encoding='utf-8'))
@@ -155,8 +176,7 @@ def main():
         raise
     print(json.dumps({'event':'training-complete','url':args.origin+'/training/'+rid,'directory':str(directory)}),flush=True)
     if args.serve:
-        print('Starting inference worker; keep this terminal open.',flush=True)
         gc.collect();torch.cuda.empty_cache()
-        subprocess.run([sys.executable,str(ROOT/'tools/training/worker.py'),'--origin',args.origin,'--cache',str(Path(args.runs_root).resolve()/'inference-cache')],check=True)
+        serve_worker(args.origin,args.runs_root)
 
 if __name__=='__main__':main()

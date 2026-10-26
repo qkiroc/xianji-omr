@@ -164,4 +164,83 @@ class ExportTests(unittest.TestCase):
    report=json.loads((root/'report.json').read_text());self.assertEqual(report['epochsCompleted'],2);self.assertEqual(report['evaluation']['test']['metrics/mAP50(B)'],0.8)
    self.assertTrue((root/'publication.json').exists())
 
+
+class UploadRecoveryTests(unittest.TestCase):
+ def test_transport_upload_timeout_and_error_diagnostics(self):
+  import urllib.error
+  from platform_client import Platform,PlatformHTTPError
+  api=Platform.__new__(Platform);api.token='omr_cli_'+'a'*64;api.origin='http://test'
+  observed={}
+  class Opener:
+   def open(self,request,timeout):
+    observed.update(timeout=timeout,headers=dict(request.header_items()),body=request.data)
+    return io.BytesIO(b'{}')
+  api.opener=Opener()
+  with tempfile.TemporaryDirectory(dir=TESTROOT) as d:
+   path=Path(d)/'model.onnx';path.write_bytes(b'model')
+   api.upload('run','onnx',path)
+  self.assertEqual(observed['timeout'],900);self.assertEqual(observed['headers']['Content-length'],'5')
+  self.assertEqual(observed['headers']['X-checksum-sha256'],hashlib.sha256(b'model').hexdigest())
+  class Reset:
+   def open(self,*args,**kwargs):raise urllib.error.URLError(ConnectionResetError(10054,api.token))
+  api.opener=Reset()
+  with self.assertRaisesRegex(RuntimeError,'ConnectionResetError.*10054') as error:api.request('/api/v2/training/runs')
+  self.assertNotIn(api.token,str(error.exception))
+  class Denied:
+   def open(self,*args,**kwargs):raise urllib.error.HTTPError('http://test',403,'Forbidden',{},io.BytesIO(api.token.encode()))
+  api.opener=Denied()
+  with self.assertRaises(PlatformHTTPError) as error:api.request('/api/v2/training/runs')
+  self.assertEqual(error.exception.status,403);self.assertNotIn(api.token,str(error.exception))
+
+ def fixture(self,root):
+  save_json(root/'run.json',{'id':'run','origin':'http://test'})
+  paths={}
+  for kind in ('onnx','weights','report'):
+   path=root/kind;path.write_bytes(kind.encode());paths[kind]=str(path)
+  save_json(root/'publication.json',{'artifacts':paths})
+  return paths
+
+ def test_publish_skips_verified_remote_files_and_recovers_transient_upload(self):
+  from unittest.mock import patch,MagicMock
+  import train
+  with tempfile.TemporaryDirectory(dir=TESTROOT) as d:
+   root=Path(d);paths=self.fixture(root)
+   class API:
+    def __init__(self):self.uploads=[];self.complete=False
+    def request(self,path,body=None):
+     if path.endswith('/complete'):self.complete=True;return {'status':'completed'}
+     return {'status':'exporting','artifacts':[{'kind':'onnx','bytes':'4','checksum':hashlib.sha256(b'onnx').hexdigest()}]}
+    def upload(self,rid,kind,path):
+     self.uploads.append(kind)
+     if self.uploads==['weights']:raise RuntimeError('Platform connection failed (ConnectionResetError)')
+   api=API();report=MagicMock()
+   with patch.object(train,'Platform',return_value=api),patch.object(train,'Reporter',return_value=report),patch.object(train,'export_artifacts') as export,patch.object(train.time,'sleep') as sleep:
+    self.assertEqual(train.publish(root),'run');export.assert_not_called();sleep.assert_called_once_with(3)
+   self.assertEqual(api.uploads,['weights','weights','report']);self.assertTrue(api.complete);report.close.assert_called_once()
+   self.assertEqual(json.loads((root/'status.json').read_text())['status'],'completed')
+
+ def test_publish_rejects_permission_or_checksum_conflict_without_repeated_uploads(self):
+  from unittest.mock import patch,MagicMock
+  from platform_client import PlatformHTTPError
+  import train
+  with tempfile.TemporaryDirectory(dir=TESTROOT) as d:
+   root=Path(d);self.fixture(root)
+   api=MagicMock();api.request.return_value={'status':'exporting','artifacts':[]};api.upload.side_effect=PlatformHTTPError(403,'Forbidden')
+   with patch.object(train,'Platform',return_value=api),patch.object(train,'Reporter'),patch.object(train.time,'sleep') as sleep:
+    with self.assertRaises(PlatformHTTPError):train.publish(root)
+    self.assertEqual(api.upload.call_count,1);sleep.assert_not_called()
+   api.reset_mock();api.request.return_value={'status':'exporting','artifacts':[{'kind':'onnx','bytes':4,'checksum':'0'*64}]}
+   with patch.object(train,'Platform',return_value=api),patch.object(train,'Reporter'):
+    with self.assertRaisesRegex(RuntimeError,'differs from local'):train.publish(root)
+    api.upload.assert_not_called()
+
+ def test_publish_cli_reuses_existing_model_then_serves_inference(self):
+  from unittest.mock import patch
+  import train
+  with tempfile.TemporaryDirectory(dir=TESTROOT) as d:
+   root=Path(d);self.fixture(root)
+   with patch.object(sys,'argv',['train.py','--publish',str(root),'--serve','--runs-root',str(root/'runs')]),patch.object(train,'publish',return_value='run') as publish,patch.object(train,'serve_worker') as serve,patch.object(train,'prepare') as prepare,patch.object(train,'export_artifacts') as export:
+    train.main();publish.assert_called_once_with(str(root));serve.assert_called_once_with('http://test',str(root/'runs'))
+    prepare.assert_not_called();export.assert_not_called()
+
 if __name__=='__main__':unittest.main()

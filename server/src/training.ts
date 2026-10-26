@@ -85,7 +85,7 @@ export function registerTraining(router: any,{pool,storage,config}: any) {
   }});
   try {
    // Stream to OSS; memory use does not scale with model size.
-   const writing=storage.putStream(key,meter,spec.mime);
+   const writing=storage.putStream(key,meter,spec.mime,{contentLength:length,timeout:600000});
    try {await Promise.all([pipeline(req,meter),writing]);}catch(e){meter.destroy();throw e;}
    need(bytes===length&&hash.digest('hex')===expected,'文件长度或校验值不匹配');
    if(req.params.kind==='report') {

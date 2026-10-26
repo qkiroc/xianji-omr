@@ -32,7 +32,7 @@ class MemoryPool {
 function setup(){
  const routes=new Map(),pool=new MemoryPool(),objects=new Map(),owner=randomUUID();
  const router={get:(p,...h)=>routes.set('get '+p,h),post:(p,...h)=>routes.set('post '+p,h)};
- const storage={async putStream(key,stream){const chunks=[];for await(const b of stream)chunks.push(b);objects.set(key,Buffer.concat(chunks));},async delete(key){objects.delete(key);}};
+ const storage={async putStream(key,stream,_mime,options){assert.equal(options.timeout,600000);assert.ok(options.contentLength>0);const chunks=[];for await(const b of stream)chunks.push(b);objects.set(key,Buffer.concat(chunks));},async delete(key){objects.delete(key);}};
  registerTraining(router,{pool,storage,config:{oss:{prefix:'omr/'}}});
  const invoke=async(method,path,{params={},body={},identity={kind:'bearer',id:owner},headers={},bytes}={})=>{
   const req=bytes?Readable.from([bytes]):{};Object.assign(req,{params,body,identity,headers});

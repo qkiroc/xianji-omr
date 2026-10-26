@@ -132,3 +132,15 @@ Node 接口测试使用内存存储替身，验证状态流转、所有权、原
 .artifacts/training/.venv/Scripts/python.exe tools/training/prepare_dataset.py --data-root .artifacts/training/data --exclude-conflicts
 # --output-root 仅更改 prepared、conflicts 和 prepared-latest.json 的保存目录，源数据仍从 --data-root 读取。
 ```
+
+## 模型上传失败后的补传
+
+训练、评估及 ONNX 导出完成后，网络中断不会丢失权重。`publication.json` 固定了需要上传的文件；`-Publish` 直接复用这些文件，不重新训练或重新评估。补传时会校验平台已登记文件的 SHA256 和长度并跳过一致文件；不一致则停止，不覆盖原文件。网络及临时服务错误会重试，授权和内容冲突错误直接停止。
+
+平台的大文件流式上传使用 10 分钟 OSS 时限，本地上传等待上限为 15 分钟；普通元信息请求保留短超时。更新本修复的服务端版本后执行：
+
+```powershell
+.\start-training.cmd -Publish 'E:\xianji-omr\.artifacts\training\runs\实际训练UUID'
+```
+
+默认补传成功后继续启动本地推理 worker，保持终端运行即可在平台上传图片测试。仅需补传时加 `-NoServe`；也可稍后用 `-WorkerOnly` 独立启动 worker。连接失败会打印异常类型及系统错误码，便于区分超时、连接重置及权限问题，不输出凭证。

@@ -3,6 +3,11 @@ import hashlib,json,os,time,threading,urllib.request,urllib.error
 from pathlib import Path
 from prepare_dataset import save_json,sha_file
 
+class PlatformHTTPError(RuntimeError):
+    def __init__(self,status,message):
+        self.status=status
+        super().__init__('Platform HTTP '+str(status)+': '+message)
+
 class Platform:
     def __init__(self,origin,repo_root=None):
         self.origin=origin.rstrip('/')
@@ -33,15 +38,22 @@ class Platform:
                 content=response.read()
                 return (content,response.headers) if binary else json.loads(content)
         except urllib.error.HTTPError as error:
-            message=error.read(4096).decode(errors='replace')
-            raise RuntimeError('Platform HTTP '+str(error.code)+': '+message) from None
-        except (OSError,urllib.error.URLError):raise RuntimeError('Platform connection failed') from None
+            message=error.read(4096).decode(errors='replace').replace(self.token,'[redacted]')
+            raise PlatformHTTPError(error.code,message) from None
+        except (OSError,urllib.error.URLError) as error:
+            reason=error.reason if isinstance(error,urllib.error.URLError) else error
+            # Exception text may contain URLs or credentials. Keep only diagnostic type/codes.
+            codes=[type(reason).__name__]
+            for field in ('errno','winerror'):
+                value=getattr(reason,field,None)
+                if isinstance(value,int):codes.append(field+'='+str(value))
+            raise RuntimeError('Platform connection failed ('+', '.join(codes)+')') from None
     def upload(self,run_id,kind,path):
         path=Path(path);checksum=sha_file(path)
         # Small detector artifacts are bounded to 128 MiB by the server.
         if path.stat().st_size>128*1024*1024:raise ValueError('Model artifact exceeds 128 MiB')
-        return self.request(f'/api/v2/training/runs/{run_id}/artifacts/{kind}',path.read_bytes(),timeout=300,
-                            headers={'Content-Type':'application/octet-stream','X-Checksum-Sha256':checksum})
+        return self.request(f'/api/v2/training/runs/{run_id}/artifacts/{kind}',path.read_bytes(),timeout=900,
+                            headers={'Content-Type':'application/octet-stream','Content-Length':str(path.stat().st_size),'X-Checksum-Sha256':checksum})
 
 class Reporter:
     def __init__(self,platform,run_id,directory,heartbeat=False):
