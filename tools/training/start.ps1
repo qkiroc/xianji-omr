@@ -26,6 +26,15 @@ function Run-Checked([string]$Program, [string[]]$Arguments) {
  & $Program @Arguments
  if ($LASTEXITCODE -ne 0) { throw "Command failed (exit $LASTEXITCODE): $Program" }
 }
+# Optional probes may write to stderr when Python packages or offline runtimes are absent.
+# Windows PowerShell 5.1 turns redirected native stderr into PowerShell errors.
+# Keep those errors non-terminating here and use the process exit code to install dependencies.
+function Invoke-OptionalCommand([string]$Program, [string[]]$Arguments) {
+ $ErrorActionPreference = 'Continue'
+ $output = @(& $Program @Arguments 2>$null)
+ $exitCode = $LASTEXITCODE
+ [pscustomobject]@{ ExitCode = $exitCode; Output = $output }
+}
 try {
  Push-Location -LiteralPath $repository
  $nodeOptions = @()
@@ -36,8 +45,8 @@ try {
  if (-not $PythonExe) {
   $uv = Get-Command uv -ErrorAction SilentlyContinue
   if ($uv) {
-   $candidate = & $uv.Source python find --offline 3.11 2>$null
-   if ($LASTEXITCODE -eq 0 -and $candidate) { $PythonExe = [string]($candidate | Select-Object -Last 1) }
+   $runtimeProbe = Invoke-OptionalCommand $uv.Source @('python','find','--offline','3.11')
+   if ($runtimeProbe.ExitCode -eq 0 -and $runtimeProbe.Output.Count) { $PythonExe = [string]($runtimeProbe.Output | Select-Object -Last 1) }
   }
  }
  if (-not $PythonExe) {
@@ -50,16 +59,16 @@ try {
  $venv = Join-Path $OutputRoot $venvName
  $python = Join-Path $venv 'Scripts/python.exe'
  if (-not (Test-Path -LiteralPath $python)) {
-  Run-Checked $PythonExe @('-c','import shutil,sys; assert shutil.disk_usage(sys.argv[1]).free>8*1024**3, "At least 8 GiB free is required before installing dependencies"',$OutputRoot)
+  Run-Checked $PythonExe @('-c',"import shutil,sys; assert shutil.disk_usage(sys.argv[1]).free>8*1024**3, 'At least 8 GiB free is required before installing dependencies'",$OutputRoot)
   Run-Checked $PythonExe @('-m','venv',$venv)
  }
  if ($WorkerOnly) {
-  & $python -c 'import onnxruntime,numpy,PIL' 2>$null
-  if ($LASTEXITCODE -ne 0) { Run-Checked $python @('-m','pip','install','--no-cache-dir','onnxruntime>=1.20,<2','numpy>=1.26,<3','pillow>=11,<13') }
+  $dependencyProbe = Invoke-OptionalCommand $python @('-c','import onnxruntime,numpy,PIL')
+  if ($dependencyProbe.ExitCode -ne 0) { Run-Checked $python @('-m','pip','install','--no-cache-dir','onnxruntime>=1.20,<2','numpy>=1.26,<3','pillow>=11,<13') }
   Run-Checked $python @((Join-Path $PSScriptRoot 'worker.py'),'--origin',$Origin,'--cache',(Join-Path $OutputRoot 'inference-cache'))
  } else {
-  & $python -c 'import torch,torchvision,ultralytics,onnx,onnxruntime,PIL' 2>$null
-  if ($LASTEXITCODE -ne 0) {
+  $dependencyProbe = Invoke-OptionalCommand $python @('-c','import torch,torchvision,ultralytics,onnx,onnxruntime,PIL')
+  if ($dependencyProbe.ExitCode -ne 0) {
    Run-Checked $python @('-m','pip','install','--no-cache-dir','torch==2.10.0','torchvision==0.25.0','--index-url','https://download.pytorch.org/whl/cu128')
    Run-Checked $python @('-m','pip','install','--no-cache-dir','-r',(Join-Path $PSScriptRoot 'requirements.txt'),'-c',(Join-Path $PSScriptRoot 'constraints.txt'))
   }
