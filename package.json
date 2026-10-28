@@ -11,6 +11,7 @@
     "start": "node server/src/index.mjs",
     "test": "node --test --test-concurrency=1 test/*.test.mjs",
     "dev": "node test/start-preview.mjs",
+    "dev:local": "node tools/dev/start.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

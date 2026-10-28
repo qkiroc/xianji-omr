@@ -1,6 +1,6 @@
 # 弦记 OMR 独立 CLI
 
-当前CLI 0.7.0，支持调用平台接口在ECS部署和按类别导出ZIP，新增`deletions preview/execute/list/retry`，永久级联删除替代旧可恢复删除；旧delete/restore接口返回410，需平台schema6。执行必须显式`--acknowledge`。完整stdin/API契约见[永久删除说明](../../docs/permanent-deletion.md)。旧文档中的可恢复删除示例不再适用。
+当前CLI 0.8.0，支持调用平台接口在ECS部署和按类别导出ZIP，新增`deletions preview/execute/list/retry`，永久级联删除替代旧可恢复删除；旧delete/restore接口返回410，需平台schema6。执行必须显式`--acknowledge`。完整stdin/API契约见[永久删除说明](../../docs/permanent-deletion.md)。旧文档中的可恢复删除示例不再适用。
 
 需要Node >=22.18.0。仅Node内置模块，无自定义npm包、无MCP、无需npm install/login。平台必须先升级到包含schema3/CLI授权接口的版本；当前线上旧版本不会因GitHub更新自动升级。
 
@@ -186,3 +186,14 @@ node tools/cli/xianji-omr.mjs platform logs JOB_UUID --origin https://omr.exampl
 三个接口都要求单独授予 platform:deploy 的CLI Bearer；Cookie、普通标注授权、已撤销或过期授权不能调用。job包含 id、status、phase、commit、createdAt、completedAt、error、logs。状态为 queued/running/succeeded/failed/interrupted。无新任务时 latest 返回 job:null。任务保存在ECS上，与标注数据库/平台重启独立；控制器重启后核对实际commit和健康情况，已部署成功则恢复成功记录，其余标记interrupted，不自动重试部署。数据库不自动回滚；版本不兼容时继续沿用既有部署规则。
 
 0.6.0的SSH上传方案已由此HTTP接口方案替换。离线CLI包同样使用 node xianji-omr.mjs 入口，无需npm安装。
+
+## 按标注任务分组（0.8.0 / schema11）
+
+切图功能可使用 `layout datasets/pages/records/songs/regions/snapshots/annotations ...`；已有无前缀命令仍兼容。切图模型功能使用 `layout training ...` 与 `layout inference ...`，调号数据集和标注使用 `key-signatures datasets ...` 与 `key-signatures records ...`。定位命令继续使用 `localization ...`。运行 `--help` 可列出完整命令。
+
+调号新增：datasets list/create/sync/export、records list/get/update/content/next。创建 JSON 包含 name、sourceDatasetId；保存 JSON 包含 version、tonic、kind（original/play）。列表支持 --status、--tonic、--kind、--search、--split、--page、--page-size。调号图片和导出清单使用 --output 保存，校验 SHA256，并拒绝覆盖文件。
+
+切图模型新增：training runs list/create/get/complete、events list/append、artifacts upload/download，以及 inference workers list/heartbeat、predict、predictions get/image/claim/heartbeat/result。推理使用 --file 图片、--confidence、--iou 和可选的 --request-id；模型文件上传使用 --kind 和 --file。写入型 JSON 命令使用 --input，标注修改必须提供版本。
+
+页面入口调整为切图标注下的三个子 tab，模型页面位于 /layout/training、/layout/models；旧 /training、/models 链接保留跳转。既有训练 worker API 保持兼容。源码仓库的完整流程和输入示例见 docs/key-signature-annotation.md。
+拍号标注：与 key-signatures 相同的 datasets list/create/sync/export 和 records list/get/update/content/next 命令均支持 time-signatures 前缀。保存 JSON 使用 version、numerator、denominator，列表支持 --numerator、--denominator；两种标注列表均支持 --trend-days 7/14/30/90 并返回 annotationTrend。数据库需 schema13。

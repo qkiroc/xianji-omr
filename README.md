@@ -1,6 +1,6 @@
 # 切图标注 · xianji-omr
 
-当前 schema8 / CLI0.5.0。编辑器中的删除属于标注 JSON 编辑，保存前可撤销、重做；删除数据集、谱页或导出快照时按影响范围清理数据库与相关文件，详见[数据清理说明](docs/permanent-deletion.md)。
+当前 schema13 / CLI0.8.0。编辑器中的删除属于标注 JSON 编辑，保存前可撤销、重做；删除数据集、谱页或导出快照时按影响范围清理数据库与相关文件，详见[数据清理说明](docs/permanent-deletion.md)。
 
 谱页新增独立[AI复核状态](docs/ai-review.md)，不等于人工确认、不计入确认训练数据。
 
@@ -88,3 +88,11 @@ CLI只请求平台HTTP接口；ECS固定拉取main并执行既有受限构建、
 ## 本地训练与模型评估
 
 新增训练监控和图片推理模块，运行方式与部署前置条件见 [训练说明](tools/training/README.md)。平台需升级至 schema10；本机可双击 `start-training.cmd` 启动。
+
+## 调号标注与任务分组（schema11 / CLI 0.8.0）
+
+切图标注下新增「数据标注 / 模型训练 / 图片推理」子 tab，训练与推理页面改为 `/layout/training`、`/layout/models`，旧链接自动跳转。调号标注支持关联切图数据集并批量提取调号框、切图列表筛选分页、键盘标注及人工标签导出。CLI 支持 `layout` 与 `key-signatures` 任务前缀；原有切图根命令兼容保留。详见 [调号标注与 CLI 说明](docs/key-signature-annotation.md)。
+### Windows 本地验收
+
+双击 `start-dev.cmd`，依赖齐全时也可运行 `npm run dev:local`。本地入口为 `http://localhost:4173/__test-login`，仅监听回环地址，使用独立临时 PostgreSQL、演示图片和样例数据，不连接生产数据库或 OSS。重启会新建演示数据；默认包含 9 张调号切图，已标注 2 张。切图模型训练和推理仍显示真实接口提供的记录，本地空库不会伪造已训练模型。
+调号与拍号标注均提供每日标注图表；列表不显示图片，编辑器显示切图。拍号 CLI 使用 time-signatures 前缀，本地验收入口会生成两种样例数据集。本次新增迁移至 schema13。

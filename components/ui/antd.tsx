@@ -187,7 +187,7 @@ export function Select({
 export function Form({
   onSubmit,
   action,
-  method,
+  method = "post",
   children,
   ...props
 }: React.FormHTMLAttributes<HTMLFormElement>) {

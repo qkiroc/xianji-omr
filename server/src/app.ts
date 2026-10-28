@@ -51,6 +51,7 @@ export function createApp({
   storage,
   staticDir,
   release = "development",
+  development = false,
   webHandler,
   deploymentSend,
 }: any) {
@@ -77,7 +78,8 @@ export function createApp({
       "Referrer-Policy": "no-referrer",
       "Cache-Control": "no-store",
       "Content-Security-Policy":
-        "default-src 'self'; img-src 'self' blob: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors 'none'",
+        // Webpack's development chunks use eval-source-map; production keeps eval disabled.
+        `default-src 'self'; img-src 'self' blob: data:; script-src 'self' 'unsafe-inline'${development ? " 'unsafe-eval'" : ""}; connect-src 'self'${development ? " " + config.origin.replace(/^http/, "ws") : ""}; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors 'none'`,
     });
     if (
       req.path.startsWith("/api/") &&

@@ -12,7 +12,7 @@ export async function permanentDelete(
   const labels: Record<string, string> = {
     datasets: "个数据集", songs: "首歌曲", pages: "张谱页",
     regions: "个区域", measures: "个小节", events: "个事件",
-    localizationRecords: "份定位记录", snapshots: "个导出快照",
+    keySignatureRecords: "份调号标注", timeSignatureRecords: "份拍号标注", localizationRecords: "份定位记录", snapshots: "个导出快照",
   };
   const contents = Object.entries(labels)
     .filter(([key]) => plan.summary[key] > 0)

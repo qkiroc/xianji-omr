@@ -1,4 +1,5 @@
 import { registerTraining } from "./training.ts";
+import { registerKeySignatures, registerTimeSignatures } from "./crop-labels.ts";
 import { registerDeletion } from "./deletion.ts";
 import { registerLocalization } from "./localization/api.ts";
 import { registerRegionReview } from "./region-review.ts";
@@ -42,6 +43,8 @@ export function createPlatform(deps: any) {
   const deletion = registerDeletion(router, deps);
   (router as any).deletion = deletion;
   registerTraining(router, deps);
+  registerKeySignatures(router, deps);
+  registerTimeSignatures(router, deps);
   registerLocalization(router, deps);
   registerDatasets(router, deps);
   registerSongCatalogue(router, { pool });

@@ -67,6 +67,6 @@ test('prediction result contract checks class, scores and original image bounds'
  assert.deepEqual(predictionBoxes([],200,100,categories),[]);
 });
 test('schema10 migration is expand-only and retains old migration history',async()=>{
- const migrations=await files();assert.equal(SCHEMA,10);assert.equal(migrations.length,10);
- assert.match(migrations.at(-1).sql,/CREATE TABLE omr_predictions/);assert.match(migrations.at(-1).sql,/PRIMARY KEY\(run_id,seq\)/);
+ const migrations=await files();assert.equal(SCHEMA,13);assert.equal(migrations.length,13);
+ assert.match(migrations[9].sql,/CREATE TABLE omr_predictions/);assert.match(migrations[9].sql,/PRIMARY KEY\(run_id,seq\)/);
 });

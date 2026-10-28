@@ -49,7 +49,7 @@ def publish(directory):
     api=Platform(meta['origin'],ROOT);rid=meta['id']
     current=api.request('/api/v2/training/runs/'+rid)
     if current['status']=='completed':
-        save_json(directory/'status.json',{'status':'completed','runId':rid,'platform':meta['origin']+'/training/'+rid})
+        save_json(directory/'status.json',{'status':'completed','runId':rid,'platform':meta['origin']+'/layout/training/'+rid})
         return rid
     if current['status'] not in ('running','exporting'):raise RuntimeError('Run is not publishable: '+current['status'])
     if current['status']=='running':
@@ -80,7 +80,7 @@ def publish(directory):
             print(json.dumps({'event':'artifact-uploaded','kind':kind,'bytes':size}),flush=True)
     finally:reporter.close()
     api.request('/api/v2/training/runs/'+rid+'/complete',{})
-    save_json(directory/'status.json',{'status':'completed','runId':rid,'platform':meta['origin']+'/training/'+rid})
+    save_json(directory/'status.json',{'status':'completed','runId':rid,'platform':meta['origin']+'/layout/training/'+rid})
     return rid
 
 def serve_worker(origin,runs_root):
@@ -99,7 +99,7 @@ def main():
     if args.publish:
         rid=publish(args.publish)
         meta=json.loads((Path(args.publish)/'run.json').read_text(encoding='utf-8'))
-        print(json.dumps({'event':'published','id':rid,'url':meta['origin']+'/training/'+rid}),flush=True)
+        print(json.dumps({'event':'published','id':rid,'url':meta['origin']+'/layout/training/'+rid}),flush=True)
         if args.serve:serve_worker(meta['origin'],args.runs_root)
         return
     if not 1<=args.epochs<=1000 or not 1<=args.batch<=64 or not 0<=args.workers<=8:p.error('Invalid epochs/batch/workers')
@@ -174,7 +174,7 @@ def main():
     except Exception:
         save_json(directory/'status.json',{'status':'publication_pending','runId':rid,'retry':'python tools/training/train.py --publish '+str(directory)})
         raise
-    print(json.dumps({'event':'training-complete','url':args.origin+'/training/'+rid,'directory':str(directory)}),flush=True)
+    print(json.dumps({'event':'training-complete','url':args.origin+'/layout/training/'+rid,'directory':str(directory)}),flush=True)
     if args.serve:
         gc.collect();torch.cuda.empty_cache()
         serve_worker(args.origin,args.runs_root)

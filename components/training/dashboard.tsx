@@ -24,11 +24,11 @@ export function MetricChart({events,keys,title}:{events:TrainingEvent[];keys:{ke
 export function TrainingList() {
  const [items,setItems]=useState<TrainingRun[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState('');const {go}=useNavigation();
  useEffect(()=>{let active=true,busy=false;const load=async()=>{if(busy)return;busy=true;try{const r=await api<TrainingRun[]>('/v2/training/runs');if(active){setItems(r);setError('');}}catch(e){if(active)setError(e instanceof Error?e.message:'加载失败');}finally{busy=false;if(active)setLoading(false);}};void load();const timer=setInterval(()=>void load(),3000);return()=>{active=false;clearInterval(timer);};},[]);
- return <><div className="section-head"><div><h1>模型训练</h1><p className="muted">本地训练 · 实时指标 · 模型归档</p></div><Button type="primary" onClick={()=>go('/models')}>图片推理</Button></div>
+ return <><div className="section-head"><div><h1>模型训练</h1><p className="muted">本地训练 · 实时指标 · 模型归档</p></div><Button type="primary" onClick={()=>go('/layout/models')}>图片推理</Button></div>
   <ErrorToast>{error}</ErrorToast>
   <Alert type="info" showIcon message="在本机启动训练" description={<Space direction="vertical"><Typography.Text>运行项目中的 tools/training/start.ps1，程序会拉取人工确认和已确认合成页，并自动上报到这里。</Typography.Text><Typography.Text code copyable>powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\training\start.ps1</Typography.Text></Space>}/>
   <Card style={{marginTop:20}}><Table<TrainingRun> rowKey="id" size="small" loading={loading} dataSource={items} pagination={{pageSize:10}} scroll={{x:880}} columns={[
-   {title:'训练任务',dataIndex:'name',render:(v:string,r:TrainingRun)=><Button type="link" onClick={()=>go('/training/'+r.id)}>{v}</Button>},
+   {title:'训练任务',dataIndex:'name',render:(v:string,r:TrainingRun)=><Button type="link" onClick={()=>go('/layout/training/'+r.id)}>{v}</Button>},
    {title:'状态',dataIndex:'status',render:(v:string)=><Tag color={colors[v]}>{names[v]}</Tag>},
    {title:'进度',render:(_:unknown,r:TrainingRun)=><Progress size="small" percent={Math.round(r.last_epoch/r.config.epochs*100)} format={()=>`${r.last_epoch}/${r.config.epochs}`} status={r.status==='failed'?'exception':r.status==='completed'?'success':'normal'}/>},
    {title:'最近 mAP50',render:(_:unknown,r:TrainingRun)=>percent(r.metrics['metrics/mAP50(B)'])},
@@ -48,7 +48,7 @@ export function TrainingDetail({id}:{id:string}) {
  if(!run)return <><ErrorToast>{error}</ErrorToast><Card loading={!error}><Empty description={error?'无法加载训练':'正在加载训练'}/></Card></>;
  const stale=['running','exporting'].includes(run.status)&&!!run.heartbeat_at&&Date.now()-Date.parse(run.heartbeat_at)>60000;
  const epochEvents=events.filter(e=>e.kind==='epoch'),logEvents=events.filter(e=>e.kind==='log'||e.kind==='state').slice(-100).reverse();
- return <><div className="section-head"><div><Button type="link" onClick={()=>go('/training')}>返回训练列表</Button><h1>{run.name} <Tag color={colors[run.status]}>{names[run.status]}</Tag></h1></div><Button disabled={run.status!=='completed'} type="primary" onClick={()=>go('/models?model='+run.id)}>测试这个模型</Button></div>
+ return <><div className="section-head"><div><Button type="link" onClick={()=>go('/layout/training')}>返回训练列表</Button><h1>{run.name} <Tag color={colors[run.status]}>{names[run.status]}</Tag></h1></div><Button disabled={run.status!=='completed'} type="primary" onClick={()=>go('/layout/models?model='+run.id)}>测试这个模型</Button></div>
   <ErrorToast>{error}</ErrorToast>
   {stale&&<Alert style={{marginBottom:16}} type="warning" showIcon message="超过 60 秒未收到上报" description="本机可能暂停或断网。已上传指标保留，本地待传事件会在恢复连接后补传。"/>}
   {run.error&&<Alert type="error" message={run.error} style={{marginBottom:16}}/>}

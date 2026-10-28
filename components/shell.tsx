@@ -1,6 +1,7 @@
 "use client";
 import { Form, Input, Button } from "./ui/antd";
 import { Menu } from "antd";
+import { LayoutTaskTabs } from "./layout/task-tabs";
 import { ErrorToast } from "./ui/toast";
 import { DeletionJobs } from "./deletion-jobs";
 import { Icon } from "./ui/icon";
@@ -13,7 +14,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     { go } = useNavigation();
   const [account, setAccount] = useState<string | null>(null),
     [error, setError] = useState("");
-  const editor = /\/songs\/|\/pages\/|\/records\/[^/]+$/.test(path),
+  const editor = /^\/(?:key-signatures|time-signatures)\/datasets\/[^/]+\/annotate$/.test(path) || /\/songs\/|\/pages\/|\/records\/[^/]+$/.test(path),
     cli = path.startsWith("/cli/");
   useEffect(() => {
     api<{ username: string }>("/session")
@@ -98,11 +99,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Menu
               mode="inline"
               selectedKeys={[
-                path.startsWith("/training") ? "training" : path.startsWith("/models") ? "models" : path.startsWith("/localization") ? "localization" : "layout",
+                path.startsWith("/time-signatures") ? "time-signatures" : path.startsWith("/key-signatures") ? "key-signatures" : path.startsWith("/localization") ? "localization" : "layout",
               ]}
               items={[
-                { key: "training", icon: <Icon name="layers" />, label: "模型训练" },
-                { key: "models", icon: <Icon name="locate" />, label: "图片推理" },
+                { key: "time-signatures", icon: <Icon name="crop" />, label: "拍号标注" },
+                { key: "key-signatures", icon: <Icon name="crop" />, label: "调号标注" },
                 {
                   key: "layout",
                   icon: <Icon name="crop" />,
@@ -115,7 +116,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 },
               ]}
               onClick={({ key }) =>
-                go(key === "training" ? "/training" : key === "models" ? "/models" : key === "layout" ? "/datasets" : "/localization/datasets")
+                go(key === "time-signatures" ? "/time-signatures/datasets" : key === "key-signatures" ? "/key-signatures/datasets" : key === "layout" ? "/datasets" : "/localization/datasets")
               }
             />
           </nav>
@@ -125,6 +126,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <main
         className={editor ? "editor-root" : cli ? "cli-main" : "page-content"}
       >
+        {!editor && !cli && (path.startsWith("/datasets") || path.startsWith("/layout/")) && <LayoutTaskTabs />}
         {children}
       </main>
     </>

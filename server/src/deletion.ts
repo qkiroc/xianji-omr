@@ -174,6 +174,11 @@ export function createDeletionService({ pool, storage, config }: any) {
       pages.sort((a: any, b: any) => a.id.localeCompare(b.id));
     }
     const pageIds = pages.map((p: any) => p.id);
+    const keyRecords = (await c.query(
+      "SELECT id,dataset_id,version FROM omr_key_records WHERE source_page_id=ANY($1::uuid[]) ORDER BY id",
+      [s.kind === "region" ? [] : pageIds],
+    )).rows;
+    const timeRecords = (await c.query("SELECT id,dataset_id,version FROM omr_time_records WHERE source_page_id=ANY($1::uuid[]) ORDER BY id", [s.kind === "region" ? [] : pageIds])).rows;
     const locDs = s.kind === "locDataset" ? s.ids : [];
     const records = (
       await c.query(
@@ -255,6 +260,7 @@ export function createDeletionService({ pool, storage, config }: any) {
         version: p.version,
         boxes: p.box_count || 0,
       })),
+      keyRecords, timeRecords,
       locDatasets: locDs,
       records,
       snapshots,
@@ -274,6 +280,8 @@ export function createDeletionService({ pool, storage, config }: any) {
           ? 0
           : records.length,
         snapshots: snapshots.length + locSnapshots.length,
+        keySignatureRecords: keyRecords.length,
+        timeSignatureRecords: timeRecords.length,
         objects: keys.size,
       },
     };
@@ -422,6 +430,12 @@ export function createDeletionService({ pool, storage, config }: any) {
             [record.geometry, record.original, p.input.ids[0]],
           );
         }
+        await c.query("DELETE FROM omr_time_records WHERE id=ANY($1::uuid[])", [(p.timeRecords || []).map((r: any) => r.id)]);
+        await c.query("UPDATE omr_time_datasets SET source_dataset_id=NULL,updated_at=now() WHERE source_dataset_id=ANY($1::uuid[])", [p.datasets]);
+        await c.query("DELETE FROM omr_key_records WHERE id=ANY($1::uuid[])", [
+          (p.keyRecords || []).map((r: any) => r.id),
+        ]);
+        await c.query("UPDATE omr_key_datasets SET source_dataset_id=NULL,updated_at=now() WHERE source_dataset_id=ANY($1::uuid[])", [p.datasets]);
         if (p.input.kind === "region") {
           const page = (
             await c.query("SELECT boxes FROM omr_images WHERE id=$1", [

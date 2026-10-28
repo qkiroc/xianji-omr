@@ -16,7 +16,7 @@ ECS 无需安装 PyTorch 或 ONNX Runtime。本机无需开放入站端口。图
 
 ## 先部署平台代码
 
-本功能新增 **schema10**、`/training` 和 `/models` 页面，以及 `/api/v2/training/*` 接口。先按现有部署流程构建并部署含 `010-training.sql` 的版本。启动脚本会先检查平台训练接口；旧平台或授权失效时停止，不先下载数 GB 的训练依赖。
+本功能新增 **schema13**、`/layout/training` 和 `/layout/models` 页面，以及 `/api/v2/training/*` 接口。先按现有部署流程构建并部署含 `010-training.sql` 的版本。启动脚本会先检查平台训练接口；旧平台或授权失效时停止，不先下载数 GB 的训练依赖。
 
 已有 CLI 授权可复用。没有授权时，在正常的本机终端执行：
 

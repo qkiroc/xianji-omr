@@ -1,2 +1,2 @@
-import {TrainingList} from '../../components/training/dashboard';
-export default function Page(){return <TrainingList/>;}
+import { redirect } from "next/navigation";
+export default function Page() { redirect("/layout/training"); }

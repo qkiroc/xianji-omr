@@ -133,6 +133,7 @@ test("Antd实际控件：表单FormData、Select/Checkbox、InputNumber、表格
   const m = await mount(tree);
   t.after(() => m.close());
   assert.ok(m.host.querySelector(".ant-form"));
+  assert.equal(m.host.querySelector("form").method, "post");
   assert.ok(m.host.querySelector(".ant-select"));
   assert.ok(m.host.querySelector(".ant-checkbox"));
   assert.ok(m.host.querySelector(".ant-input-number"));

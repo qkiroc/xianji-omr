@@ -1,3 +1,4 @@
+import {VERSION as CLI_VERSION} from '../tools/cli/src/version.mjs';
 // Explicit cloud-only acceptance of an actual supplied prebuilt archive; no real cloud config.
 import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
@@ -53,7 +54,7 @@ try {
   execFileSync("tar", ["-xzf", packed.archive, "-C", cliDir]);
   const result = await workflow(
     f,
-    join(cliDir, "xianji-omr-cli-0.4.0/xianji-omr.mjs"),
+    join(cliDir, "xianji-omr-cli-"+CLI_VERSION+"/xianji-omr.mjs"),
   );
   assert.equal(result.templates, 50);
   assert.equal((await fetch(f.url + "/datasets")).status, 200);
