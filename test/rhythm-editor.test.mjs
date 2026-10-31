@@ -76,3 +76,22 @@ test('failed save retains drawn regions and a remounted editor restores them bef
   assert.equal(savedBody.geometry.measures[0].events.length,1);assert.equal(window.localStorage.getItem('omr-region-draft:r'),null);
  }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=originalFetch;window.localStorage.clear();window.removeEventListener('omr-toast',onToast);}
 });
+test('single-row editor requests a row crop and never exposes other page systems in either view',async()=>{
+ const remote=structuredClone(initial);remote.geometry.regions=[{id:'row',pageId:'p',systemId:'s',track:'guitar',bbox:[10,60,190,90]},
+  {id:'lyrics',pageId:'p',systemId:'s',track:'lyrics',bbox:[10,100,190,130]}];
+ remote.geometry.sample={unit:'system',id:'system:s',pageId:'p',index:2,bbox:[10,60,190,130]};
+ const originalFetch=globalThis.fetch,requests=[];window.localStorage.clear();
+ globalThis.fetch=async(path)=>{requests.push(String(path));
+  if(String(path).endsWith('/content'))return new Response(new Blob(['row'],{type:'image/png'}));
+  if(String(path).includes('/editor?'))return Response.json({previousId:null,nextId:null});return Response.json(remote);
+ };
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ try{
+  await act(async()=>root.render(h(UiProvider,null,h(LocalizationEditor,{datasetId:'d',recordId:'r'}))));
+  const svg=host.querySelector('svg[aria-label="小节与音符事件选区"]');assert.equal(svg.getAttribute('viewBox'),'10 60 180 70');
+  assert.ok(requests.includes('/api/v2/localization/records/r/content'));assert.ok(!requests.some(p=>p.includes('/sources/')));
+  const image=svg.querySelector('image');assert.equal(image.getAttribute('y'),'60');assert.equal(image.getAttribute('height'),'70');
+  await key('Tab');assert.equal(svg.getAttribute('viewBox'),'10 60 180 30');await key('Tab');assert.equal(svg.getAttribute('viewBox'),'10 60 180 70');
+  assert.equal(host.querySelectorAll('.sidebar > button').length,2);assert.ok(button('上一行'));assert.ok(button('确认并下一行'));
+ }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=originalFetch;window.localStorage.clear();}
+});

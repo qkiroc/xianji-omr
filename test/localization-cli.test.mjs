@@ -31,6 +31,8 @@ test('localization CLI: real process creates, synchronizes, filters, edits, conf
  const list=await ok(['localization','records','list',ds.id,'--status','draft','--split','train','--search',s.song.name,'--trend-days','7','--page-size','10']);
  assert.equal(list.total,1);assert.equal(list.annotationTrend.days,7);assert.equal(list.pageSize,10);
  let r=await ok(['localization','records','get',list.items[0].id]);
+ const rowPng=join(dir,'row.png'),rowDownload=await ok(['localization','records','content',r.id,'--output',rowPng]);
+ const rowBytes=await readFile(rowPng);assert.equal(sha(rowBytes),rowDownload.checksum);assert.equal(rowBytes.readUInt32BE(16),200);assert.equal(rowBytes.readUInt32BE(20),160);
  const neighbors=await ok(['localization','records','neighbors',r.id,'--dataset',ds.id,'--status','draft']);assert.deepEqual(neighbors,{previousId:null,nextId:null});
  const geometry=structuredClone(r.geometry);geometry.measures=geometry.regions.map((region,i)=>({id:'m-'+i,pageId:region.pageId,regionId:region.id,systemId:region.systemId,barNumber:1,track:region.track,bbox:region.bbox,events:[{id:'e-'+i,centerX:50,bbox:[40,region.bbox[1],60,region.bbox[3]],contextBBox:null,status:'accepted',evidence:{},annotationSource:{},confidence:null,rhythm:{duration:region.track==='lyrics'?null:8}}],geometryConfirmed:false,completenessConfirmed:false,reviewNote:''}));
  const update=join(dir,'regions.json');await writeFile(update,JSON.stringify({version:r.version,geometry}));

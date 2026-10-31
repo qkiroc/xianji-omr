@@ -17,7 +17,7 @@ async function selection(o){
  return body;
 }
 export async function localizationCommand(words,o,{request,signal}){
- if(o.classes!==undefined)fail('ARGUMENT','小节与事件导出暂不支持 --classes；使用 --record 或 recordIds 选择谱页');
+ if(o.classes!==undefined)fail('ARGUMENT','小节与事件导出暂不支持 --classes；使用 --record 或 recordIds 选择谱行');
  if(words.slice(0,3).join(' ')==='localization datasets export'){
   if(words.length>4)fail('ARGUMENT','多余位置参数');
   const dataset=uuid(o.dataset||words[3],'数据集'),kind=o.kind||'crops';

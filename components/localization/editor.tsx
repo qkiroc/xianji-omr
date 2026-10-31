@@ -29,7 +29,8 @@ export function LocalizationEditor({datasetId,recordId}:{datasetId:string;record
   const region=geometry?.regions?.find(r=>r.id===regionId), measure=geometry?.measures.find(m=>m.id===mid), event=measure?.events.find(e=>e.id===eid);
   const page=geometry?.pages.find(p=>p.localPageId===(region?.pageId || measure?.pageId)) || geometry?.pages[0];
   const activeMeasures=geometry?.measures.filter(m=>!region || m.regionId===region.id)||[];
-  const bounds:XYXY=page ? view==="crop" && region ? region.bbox : [0,0,page.width,page.height] : [0,0,1,1];
+  const sampleBounds:XYXY=geometry?.sample?.bbox || (page?[0,0,page.width,page.height]:[0,0,1,1]);
+  const bounds:XYXY=view==="crop"&&region?region.bbox:sampleBounds;
   const label=event?.rhythm;
   const refreshQueue=useCallback(async()=>{try {setQueue(await api("/v2"+base+"/editor?"+new URLSearchParams({recordId,status:q.get("status")||"",split:q.get("split")||"",search:q.get("search")||""})));}catch(e){setError((e as Error).message);}},[base,recordId,q]);
   useEffect(()=>{
@@ -42,16 +43,18 @@ export function LocalizationEditor({datasetId,recordId}:{datasetId:string;record
       if(r.geometry.schemaVersion!=="omr-rhythm-v1")throw Error("这是旧定位样本，请删除旧数据集并从切图生成新样本。");
       const restored=readRegionDraft(window.localStorage,r),g=restored||r.geometry;
       setRecord(r);setGeometry(g);current.current=g;saved.current=r;
+      setView(g.sample?"source":"crop");
       const m=g.measures.find(m=>m.id===q.get("measure"));setRegionId(m?.regionId||g.regions?.[0]?.id||"");setMid(m?.id||"");setEid("");setDirty(!!restored&&!same(g,r.geometry));setHistory([]);setFuture([]);
     }).catch(e=>{if(active)setError(e.message);});void refreshQueue();
     return()=>{active=false;};
   },[recordId,datasetId]);
   useEffect(()=>{
     if(!page)return;const controller=new AbortController();let url="";
-    setImage("");fetch("/api/v2/localization/sources/"+page.sourcePageId+"/content",{cache:"no-store",signal:controller.signal}).then(async r=>{
+    const path=geometry?.sample?"/api/v2/localization/records/"+recordId+"/content":"/api/v2/localization/sources/"+page.sourcePageId+"/content";
+    setImage("");fetch(path,{cache:"no-store",signal:controller.signal}).then(async r=>{
       if(!r.ok)throw Error("原图读取失败，请重试");url=URL.createObjectURL(await r.blob());if(!controller.signal.aborted)setImage(url);else URL.revokeObjectURL(url);
     }).catch(e=>{if(!controller.signal.aborted)setError(e.message);});return()=>{controller.abort();if(url)URL.revokeObjectURL(url);};
-  },[page?.sourcePageId,retry]);
+  },[page?.sourcePageId,recordId,geometry?.sample?.id,retry]);
   const commit=(next:Geometry,before=current.current)=>{
     if(!before||same(next,before))return;
     for(const m of next.measures){const prev=before.measures.find(x=>x.id===m.id);if(!same(m,prev))m.geometryConfirmed=m.completenessConfirmed=false;}
@@ -168,16 +171,16 @@ export function LocalizationEditor({datasetId,recordId}:{datasetId:string;record
   const corners=(b:XYXY,m:Measure,ev?:LocEvent)=>[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]]].map(([x,y],i)=><rect key={i} data-kind={ev?"corner-event":"corner-measure"} data-mid={m.id} data-eid={ev?.id} data-corner={i} x={x-4} y={y-4} width={8} height={8} fill="white" stroke={ev?color(ev):"#6d5eea"} vectorEffect="non-scaling-stroke"/>);
   return <>
     <div className="editor-toolbar rhythm-toolbar"><Space><Button onClick={()=>go(base+"?"+q)}>返回列表</Button><b title={record.title}>{record.title}</b></Space>
-      <Space><Button disabled={!queue.previousId||busy} onClick={()=>openRecord(queue.previousId)}>上一页</Button><Button disabled={!queue.nextId||busy} onClick={()=>openRecord(queue.nextId)}>下一页</Button></Space>
+      <Space><Button disabled={!queue.previousId||busy} onClick={()=>openRecord(queue.previousId)}>上一行</Button><Button disabled={!queue.nextId||busy} onClick={()=>openRecord(queue.nextId)}>下一行</Button></Space>
       <Space><Tag color={dirty?"orange":record.status==="confirmed"?"green":"default"}>{dirty?"未保存":record.status==="confirmed"?"已确认":"草稿"}</Tag><Button disabled={!dirty||busy} loading={busy} onClick={()=>void save().catch(()=>{})}>保存</Button>
         {record.status==="confirmed"&&!dirty&&<Button disabled={busy} onClick={async()=>{if(busyRef.current)return;busyRef.current=true;setBusy(true);try{const r=await api<LocalizationRecord>("/v2/localization/records/"+recordId+"/unconfirm",json({version:saved.current!.version}));saved.current=r;setRecord(r);setGeometry(r.geometry);current.current=r.geometry;}catch(e){setError((e as Error).message);}finally{busyRef.current=false;setBusy(false);}}}>取消确认</Button>}
-        <Button type="primary" disabled={busy} onClick={()=>void confirm(true)}>确认并下一页</Button></Space></div>
+        <Button type="primary" disabled={busy} onClick={()=>void confirm(true)}>确认并下一行</Button></Space></div>
     <div className="tools rhythm-tools"><Space wrap>{(["select","measure","event"] as const).map((key,i)=><Button key={key} type={mode===key?"primary":"default"} disabled={busy||(key==="event"&&!measure)} onClick={()=>{setMode(key);}}>{["选择 V","画小节 M","画事件 E"][i]}</Button>)}
       <Button disabled={!history.length||busy} onClick={()=>undo()}>撤销</Button><Button disabled={!future.length||busy} onClick={()=>undo(true)}>重做</Button><Button onClick={()=>setZoom(v=>Math.max(.25,v/1.25))}>缩小</Button><span>{Math.round(zoom*100)}%</span><Button onClick={()=>setZoom(v=>Math.min(4,v*1.25))}>放大</Button></Space>
-      <Tabs activeKey={view} onChange={setView} items={[{key:"crop",label:"谱行裁片"},{key:"source",label:"原图标注"}]}/></div>
+      <Tabs activeKey={view} onChange={setView} items={[{key:"crop",label:"当前区域"},{key:"source",label:"完整谱行"}]}/></div>
     <ErrorToast>{error}</ErrorToast>
     <div className="editor-body rhythm-editor" inert={busy}>
-      <aside className="sidebar"><h3>来源谱行</h3>{geometry.regions?.map((r,i)=><Button block key={r.id} className="rhythm-row-button" type={r.id===regionId?"primary":"default"} onClick={()=>{setRegionId(r.id);setMid("");setEid("");setMode("select");}}>{i+1}. {TRACK_NAMES[r.track]} · {geometry.measures.filter(m=>m.regionId===r.id).length} 小节</Button>)}
+      <aside className="sidebar"><h3>本行区域</h3>{geometry.regions?.map((r,i)=><Button block key={r.id} className="rhythm-row-button" type={r.id===regionId?"primary":"default"} onClick={()=>{setRegionId(r.id);setMid("");setEid("");setMode("select");}}>{i+1}. {TRACK_NAMES[r.track]} · {geometry.measures.filter(m=>m.regionId===r.id).length} 小节</Button>)}
         <h3>当前谱行的小节</h3>{activeMeasures.map((m,i)=><div key={m.id}><Button block className="rhythm-row-button" type={mid===m.id&&!eid?"primary":"default"} onClick={()=>pick(m)}>第 {m.barNumber||i+1} 小节 · {m.events.filter(e=>e.status!=="rejected").length} 事件</Button>
           {m.id===mid&&orderedEvents(m).map((ev,j)=><Button key={ev.id} block size="small" className="rhythm-event-button" type={ev.id===eid?"primary":"text"} onClick={()=>pick(m,ev)}>{j+1}. {eventName(ev)}</Button>)}</div>)}
         {!activeMeasures.length&&<p className="muted">先在当前谱行拖拽画小节，再在小节内画事件框。</p>}
@@ -185,7 +188,7 @@ export function LocalizationEditor({datasetId,recordId}:{datasetId:string;record
       <section className="loc-stage rhythm-stage" aria-label="小节与音符事件标注画布">
         <p className="rhythm-stage-hint">{mode==="event"?"在选中小节内拖拽框选事件区域，具体内容留给后续模型识别。":mode==="measure"?"在当前谱行内拖拽画小节框，包含完整的时值符号。":"拖拽选区移动，拖拽四角缩放；事件锚点可独立拖动。"}</p>
         {image&&page?<svg aria-label="小节与音符事件选区" role="img" viewBox={`${bounds[0]} ${bounds[1]} ${bounds[2]-bounds[0]} ${bounds[3]-bounds[1]}`} style={{width:`${zoom*100}%`,maxWidth:"none",touchAction:"none"}} onPointerDown={down} onPointerMove={move} onPointerUp={finish} onPointerCancel={cancelDrag}>
-          <image href={image} width={page.width} height={page.height}/>
+          <image href={image} x={sampleBounds[0]} y={sampleBounds[1]} width={sampleBounds[2]-sampleBounds[0]} height={sampleBounds[3]-sampleBounds[1]}/>
           {view==="source"&&geometry.regions?.filter(r=>r.pageId===page.localPageId).map(r=><rect key={r.id} x={r.bbox[0]} y={r.bbox[1]} width={r.bbox[2]-r.bbox[0]} height={r.bbox[3]-r.bbox[1]} fill="none" stroke="#aeb7c5" strokeDasharray="5 4" vectorEffect="non-scaling-stroke"/>)}
           {geometry.measures.filter(m=>m.pageId===page.localPageId&&(view==="source"||m.regionId===regionId)).map(m=>m.bbox&&<g key={m.id}>
             <rect data-kind="move-measure" data-mid={m.id} x={m.bbox[0]} y={m.bbox[1]} width={m.bbox[2]-m.bbox[0]} height={m.bbox[3]-m.bbox[1]} fill={mid===m.id?"#6d5eea0b":"transparent"} stroke="#6d5eea" strokeWidth={mid===m.id?2:1} vectorEffect="non-scaling-stroke"/>
@@ -206,7 +209,7 @@ export function LocalizationEditor({datasetId,recordId}:{datasetId:string;record
           </>:<p className="muted">只框选歌词区域，文字内容留给后续模型识别。</p>}
           <label>横向锚点（原图像素）</label><InputNumber aria-label="横向锚点" precision={0} min={event.bbox?.[0]||0} max={event.bbox?.[2]||page?.width} value={event.centerX} onChange={x=>editEvent(e=>{e.centerX=x;})}/>
           <p className="muted small">选区 {event.bbox?.join(", ")} · 拖动框内虚线可独立调整锚点。</p><Button danger onClick={()=>void remove()}>删除事件 Q</Button>
-          <h3>所在小节上下文</h3><CropPreview image={image} bbox={measure.bbox} event={event} width={page!.width} height={page!.height}/>
+          <h3>所在小节上下文</h3><CropPreview image={image} bbox={measure.bbox} event={event} imageBounds={sampleBounds}/>
         </>:measure?<><h3>选中小节区域</h3><Tag>{TRACK_NAMES[measure.track]}</Tag>
           <label>小节序号（可选）</label><InputNumber min={1} precision={0} value={measure.barNumber} onChange={barNumber=>edit(g=>{g.measures.find(m=>m.id===mid)!.barNumber=barNumber;})}/>
           <p className="muted small">选区 {measure.bbox?.join(", ")}</p><Button danger onClick={()=>void remove()}>删除小节 Q</Button><h3>事件区域</h3>
@@ -216,12 +219,12 @@ export function LocalizationEditor({datasetId,recordId}:{datasetId:string;record
         </>}
       </aside>
     </div>
-    <footer className="caption">Ctrl/Cmd+S 保存 · Ctrl/Cmd+Z 撤销 · Shift+Ctrl/Cmd+Z 重做 · Tab 切换视图 · 1–6 区域类别 · Q 删除 · 方向键移动（Shift ×10） · Enter 确认并下一页</footer>
+    <footer className="caption">Ctrl/Cmd+S 保存 · Ctrl/Cmd+Z 撤销 · Shift+Ctrl/Cmd+Z 重做 · Tab 切换视图 · 1–6 区域类别 · Q 删除 · 方向键移动（Shift ×10） · Enter 确认并下一行</footer>
   </>;
 }
 
-function CropPreview({image,bbox,event,width,height}:{image:string;bbox:XYXY|null;event:LocEvent;width:number;height:number}) {
+function CropPreview({image,bbox,event,imageBounds}:{image:string;bbox:XYXY|null;event:LocEvent;imageBounds:XYXY}) {
   if(!bbox||!image)return null;
-  return <svg className="rhythm-preview" viewBox={`${bbox[0]} ${bbox[1]} ${bbox[2]-bbox[0]} ${bbox[3]-bbox[1]}`} aria-label="选中事件的小节上下文"><image href={image} width={width} height={height}/>
+  return <svg className="rhythm-preview" viewBox={`${bbox[0]} ${bbox[1]} ${bbox[2]-bbox[0]} ${bbox[3]-bbox[1]}`} aria-label="选中事件的小节上下文"><image href={image} x={imageBounds[0]} y={imageBounds[1]} width={imageBounds[2]-imageBounds[0]} height={imageBounds[3]-imageBounds[1]}/>
     {event.bbox&&<rect x={event.bbox[0]} y={event.bbox[1]} width={event.bbox[2]-event.bbox[0]} height={event.bbox[3]-event.bbox[1]} fill="none" stroke={color(event)} vectorEffect="non-scaling-stroke"/>}</svg>;
 }

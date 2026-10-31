@@ -69,10 +69,19 @@ export interface SourcePage {
 export interface Geometry {
   schemaVersion: "omr-localization-v1" | "omr-rhythm-v1";
   regions?: RhythmRegion[];
+  sample?: RhythmSample;
   pages: SourcePage[];
   measures: Measure[];
 }
+export interface RhythmSample {
+  unit: "system";
+  id: string;
+  pageId: string;
+  index: number;
+  bbox: XYXY;
+}
 export interface LocalizationRecord {
+  superseded_at?: string | null;
   confirmed_at: string | null;
   id: string;
   dataset_id: string;

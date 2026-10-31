@@ -120,6 +120,7 @@ async function record(
     [id],
   );
   insist(r.rowCount, "定位记录不存在", 404);
+  insist(!r.rows[0].superseded_at,"这条整页记录已拆分为单行样本，请返回列表打开新的谱行记录",410);
   return r.rows[0];
 }
 async function sourcesValid(
@@ -208,7 +209,7 @@ export function registerLocalization(
     res.json(
       (
         await pool.query(
-          "SELECT d.*,s.name source_name,count(r.id)::int record_count,count(r.id) FILTER(WHERE r.status='confirmed')::int confirmed_count FROM omr_loc_datasets d LEFT JOIN omr_datasets s ON s.id=d.source_dataset_id LEFT JOIN omr_loc_records r ON r.dataset_id=d.id GROUP BY d.id,s.name ORDER BY d.created_at DESC,d.id DESC",
+          "SELECT d.*,s.name source_name,count(r.id)::int record_count,count(r.id) FILTER(WHERE r.status='confirmed')::int confirmed_count FROM omr_loc_datasets d LEFT JOIN omr_datasets s ON s.id=d.source_dataset_id LEFT JOIN omr_loc_records r ON r.dataset_id=d.id AND r.superseded_at IS NULL GROUP BY d.id,s.name ORDER BY d.created_at DESC,d.id DESC",
         )
       ).rows,
     ),
@@ -246,7 +247,7 @@ export function registerLocalization(
     const status = String(req.query.status || ""), split = String(req.query.split || ""), search = String(req.query.search || "");
     insist(["","draft","confirmed"].includes(status) && ["","train","val","test"].includes(split) && search.length<=200,"队列筛选无效");
     const parameters = [d.id,current.id,status,split,search];
-    const filters = "dataset_id=$1 AND ($3='' OR status=$3) AND ($4='' OR split=$4) AND ($5='' OR position(lower($5) in lower(title))>0 OR position(lower($5) in lower(corpus_id))>0)";
+    const filters = "dataset_id=$1 AND superseded_at IS NULL AND ($3='' OR status=$3) AND ($4='' OR split=$4) AND ($5='' OR position(lower($5) in lower(title))>0 OR position(lower($5) in lower(corpus_id))>0)";
     // Read the timestamp cursor in PostgreSQL so JavaScript millisecond precision
     // cannot make a record its own neighbor or skip pages created in the same ms.
     const cursor = "(SELECT created_at,id FROM omr_loc_records WHERE id=$2::uuid)";
@@ -266,7 +267,7 @@ export function registerLocalization(
       "分页无效",
     );
     const params: unknown[] = [req.params.datasetId];
-    let where = "dataset_id=$1";
+    let where = "dataset_id=$1 AND superseded_at IS NULL";
     for (const [key, column] of [
       ["status", "status"],
       ["split", "split"],
@@ -286,7 +287,7 @@ export function registerLocalization(
       where += ` AND (position(lower($${params.length}) in lower(title))>0 OR position(lower($${params.length}) in lower(corpus_id))>0)`;
     }
     const rows = await pool.query(
-      `SELECT id,dataset_id,corpus_id,corpus_revision,title,group_key,split,source,status,version,updated_at,original->>'pageOrder' page_order,jsonb_array_length(geometry->'measures') measure_count,(SELECT COALESCE(sum(jsonb_array_length(m->'events')),0)::int FROM jsonb_array_elements(geometry->'measures') m) event_count FROM omr_loc_records WHERE ${where} ORDER BY created_at DESC,id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      `SELECT id,dataset_id,corpus_id,corpus_revision,title,group_key,split,source,status,version,updated_at,original->>'pageOrder' page_order,geometry->'sample'->>'index' line_index,jsonb_array_length(geometry->'measures') measure_count,(SELECT COALESCE(sum(jsonb_array_length(m->'events')),0)::int FROM jsonb_array_elements(geometry->'measures') m) event_count FROM omr_loc_records WHERE ${where} ORDER BY created_at DESC,id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, size, (page - 1) * size],
     );
     const total = Number(
@@ -301,9 +302,9 @@ export function registerLocalization(
     insist((ANNOTATION_TREND_DAYS as readonly number[]).includes(days),"统计范围无效");
     const window = annotationWindow(days);
     const daily = (await pool.query(`SELECT to_char(first_labeled_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') date,count(*)::int count,0::int estimated
-      FROM omr_loc_records WHERE dataset_id=$1 AND first_labeled_at>=($2::date::timestamp AT TIME ZONE 'Asia/Shanghai')
+      FROM omr_loc_records WHERE dataset_id=$1 AND superseded_at IS NULL AND first_labeled_at>=($2::date::timestamp AT TIME ZONE 'Asia/Shanghai')
       AND first_labeled_at<(($3::date+interval '1 day') AT TIME ZONE 'Asia/Shanghai') GROUP BY 1 ORDER BY 1`,[ds.id,window.start,window.end])).rows;
-    const stats = (await pool.query("SELECT count(*)::int total,count(*) FILTER(WHERE status='confirmed')::int confirmed FROM omr_loc_records WHERE dataset_id=$1",[ds.id])).rows[0];
+    const stats = (await pool.query("SELECT count(*)::int total,count(*) FILTER(WHERE status='confirmed')::int confirmed FROM omr_loc_records WHERE dataset_id=$1 AND superseded_at IS NULL",[ds.id])).rows[0];
     res.json({ dataset:ds,stats,items: rows.rows, total, page, pageSize: size,annotationTrend:annotationTrend(days,daily,new Date(window.end+'T04:00:00Z')) });
   });
   router.post("/localization/datasets/:datasetId/import", async (req, res) =>
@@ -693,6 +694,17 @@ export function registerLocalization(
       .toBuffer();
     res.type("png").set("X-Checksum-Sha256", fingerprintBytes(raw)).send(raw);
   });
+  router.get("/localization/records/:recordId/content",async(req,res)=>{
+    const r=await record(pool,req.params.recordId),sample=r.geometry.sample;
+    insist(sample,"该记录没有单行裁片",400);
+    const page=r.geometry.pages.find(p=>p.localPageId===sample.pageId);
+    insist(page,"谱行来源不存在",410);
+    const p=await source(pool,page.sourcePageId),data=await storage.get(p.object_key);
+    insist(fingerprintBytes(data)===page.sourceSha,"来源原图SHA不匹配",409);
+    const b=bbox(sample.bbox,page,false)!;
+    const raw=await sharp(data,{limitInputPixels:50000000}).extract({left:b[0],top:b[1],width:b[2]-b[0],height:b[3]-b[1]}).png().toBuffer();
+    res.type("png").set("X-Checksum-Sha256",fingerprintBytes(raw)).send(raw);
+  });
   router.get(
     "/localization/datasets/:datasetId/snapshots",
     async (req, res) => {
@@ -724,7 +736,7 @@ export function registerLocalization(
         );
         const budget = (
           await c.query<{ n: string; bytes: string }>(
-            "SELECT count(*) n,COALESCE(sum(octet_length(original::text)+octet_length(geometry::text)),0) bytes FROM omr_loc_records WHERE dataset_id=$1 AND status='confirmed'" +
+            "SELECT count(*) n,COALESCE(sum(octet_length(original::text)+octet_length(geometry::text)),0) bytes FROM omr_loc_records WHERE dataset_id=$1 AND superseded_at IS NULL AND status='confirmed'" +
               (ids ? " AND id=ANY($2::uuid[])" : ""),
             ids ? [ds.id, ids] : [ds.id],
           )
@@ -737,7 +749,7 @@ export function registerLocalization(
         );
         const records = (
           await c.query<LocalizationRecord>(
-            "SELECT * FROM omr_loc_records WHERE dataset_id=$1 AND status='confirmed'" +
+            "SELECT * FROM omr_loc_records WHERE dataset_id=$1 AND superseded_at IS NULL AND status='confirmed'" +
               (ids ? " AND id=ANY($2::uuid[])" : "") +
               " ORDER BY id LIMIT 101",
             ids ? [ds.id, ids] : [ds.id],
@@ -905,6 +917,7 @@ export function registerLocalization(
                 sourcePageId: page.sourcePageId,
                 sourceSha: page.sourceSha,
                 bbox: b,
+                ...(record.geometry.sample ? {sample:record.geometry.sample} : {}),
                 localToSource: [[1,0,b[0]],[0,1,b[1]],[0,0,1]],
                 track: measure.track,
                 songGroupKey: record.group_key,

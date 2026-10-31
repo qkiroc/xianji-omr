@@ -112,7 +112,7 @@ export function validateGeometry(
   const rhythm = raw.schemaVersion === "omr-rhythm-v1";
   insist(
     Object.keys(raw).every((k) =>
-      ["schemaVersion", "pages", "measures", ...(rhythm ? ["regions"] : [])].includes(k),
+      ["schemaVersion", "pages", "measures", ...(rhythm ? ["regions", "sample"] : [])].includes(k),
     ),
     "不支持的geometry字段，请保留在original附件",
   );
@@ -139,6 +139,15 @@ export function validateGeometry(
       track: r.track as RhythmRegion["track"], bbox: bbox(r.bbox,page,false)! };
   }) : [];
   if (rhythm && previous) insist(fingerprint(regions) === fingerprint(previous.regions ?? []), "来源谱行不可修改",409);
+  let sample: Geometry["sample"];
+  if(rhythm && raw.sample != null){
+    const s=object(raw.sample),page=pages.find(p=>p.localPageId===s.pageId);
+    insist(s.unit==="system"&&page&&Number.isSafeInteger(s.index)&&Number(s.index)>0,"谱行样本信息无效");
+    sample={unit:"system",id:string(s.id,"谱行样本ID",220),pageId:page.localPageId,index:Number(s.index),bbox:bbox(s.bbox,page,false)!};
+    insist(regions.length>0&&regions.every(r=>r.pageId===sample!.pageId&&within(r.bbox,sample!.bbox)),"样本只能包含当前谱行区域");
+    insist(regions.every(r=>(r.systemId?"system:"+r.systemId:"region:"+r.id)===sample!.id),"样本不能包含其他谱行");
+  }
+  if(rhythm&&previous)insist(fingerprint(sample??null)===fingerprint(previous.sample??null),"来源谱行样本不可修改",409);
   const measures: Measure[] = raw.measures.map((value) => {
     const m = object(value);
     insist(
@@ -173,6 +182,7 @@ export function validateGeometry(
     const voice = rhythm ? "1" : string(m.voice, "声部", 80),
       box = bbox(m.bbox, page, !confirm);
     const region = m.regionId == null ? null : regions.find(r => r.id === m.regionId);
+    if(sample)insist(region&&region.pageId===sample.pageId&&(!box||within(box,sample.bbox)),"小节必须关联当前谱行内的声部区域");
     if (rhythm && m.regionId != null) {
       insist(region && region.pageId === page.localPageId && region.track === m.track, "小节所属谱行与轨道不匹配");
       if (box) insist(within(box,region.bbox), "小节框必须位于所属谱行内");
@@ -339,7 +349,7 @@ export function validateGeometry(
   if (rhythm) {
     if (confirm) for (const region of regions) insist(measures.some(m => m.regionId === region.id), "请为每个来源谱行标注小节后再确认整页");
   }
-  return { schemaVersion: rhythm ? "omr-rhythm-v1" : "omr-localization-v1", pages, measures, ...(rhythm ? {regions} : {}) };
+  return { schemaVersion: rhythm ? "omr-rhythm-v1" : "omr-localization-v1", pages, measures, ...(rhythm ? {regions,...(sample?{sample}:{})} : {}) };
 }
 
 function rhythmLabel(value: unknown, track: string, confirm: boolean): RhythmLabel {

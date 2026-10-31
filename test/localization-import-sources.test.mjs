@@ -7,7 +7,7 @@ function platform() {
   const targets=[{id:'existing',name:'已有人工作业',task:'rhythm',source_dataset_id:'a'}, {id:'legacy',task:'geometry',source_dataset_id:'b'}];
   const pending={a:3,b:2};
   const calls=[];
-  return {calls,targets,health:{ok:true,schema:14},request:async(path,options={})=>{
+  return {calls,targets,health:{ok:true,schema:15},request:async(path,options={})=>{
     calls.push({path,options});
     if(path==='/api/v2/datasets') return Response.json(sources);
     if(path==='/api/v2/localization/datasets'&&!options.method) return Response.json(targets);
@@ -29,10 +29,10 @@ function platform() {
 test('bulk import reuses linked datasets, creates missing sources and reruns without duplicates',async()=>{
   const p=platform();
   const first=await importSources(p);
-  assert.equal(first.addedPages,5);assert.equal(first.errors.length,0);
+  assert.equal(first.addedSamples,5);assert.equal(first.errors.length,0);
   assert.equal(first.actions.at(-1).operation,'skip');
   const second=await importSources(p);
-  assert.equal(second.addedPages,0);
+  assert.equal(second.addedSamples,0);
   assert.equal(p.calls.filter(c=>c.path==='/api/v2/localization/datasets'&&c.options.method==='POST').length,1);
 });
 test('preview and selected-source validation do not mutate platform',async()=>{
@@ -53,8 +53,11 @@ test('failed network write is checkpointed and never automatically retried',asyn
 });
 test('schema 13 is rejected before any dataset request or write, even with no existing datasets',async()=>{
   const p=platform();
-  await assert.rejects(importSources({...p,health:{ok:true,schema:13}}),/需要 >=14/);
+  await assert.rejects(importSources({...p,health:{ok:true,schema:13}}),/需要 >=15/);
   assert.equal(p.calls.length,0);
+});
+test('page-based schema 14 cannot receive new single-row imports',async()=>{
+  const p=platform();await assert.rejects(importSources({...p,health:{ok:true,schema:14}}),/需要 >=15/);assert.equal(p.calls.length,0);
 });
 test('incomplete deployment missing association fields is rejected without writes',async()=>{
   const p=platform();p.targets.push({id:'old-empty',name:'旧接口创建的空数据集',record_count:0});
