@@ -25,13 +25,23 @@ export interface LocEvent {
   evidence: Evidence;
   annotationSource: Evidence;
   confidence: number | null;
+  rhythm?: RhythmLabel;
+}
+export type RhythmDuration = 1 | 2 | 4 | 8 | 16 | 32;
+export interface RhythmLabel {
+  duration: RhythmDuration | null;
+}
+export interface RhythmRegion {
+  id: string; pageId: string; systemId: string | null;
+  track: "guitar" | "melody" | "lyrics"; bbox: XYXY;
 }
 export interface Measure {
   id: string;
   pageId: string;
   systemId: string | null;
   barNumber: number | null;
-  track: "guitar" | "melody";
+  track: "guitar" | "melody" | "lyrics";
+  regionId?: string | null;
   voice: string;
   bbox: XYXY | null;
   staffLines: number[] | null;
@@ -57,7 +67,8 @@ export interface SourcePage {
   };
 }
 export interface Geometry {
-  schemaVersion: "omr-localization-v1";
+  schemaVersion: "omr-localization-v1" | "omr-rhythm-v1";
+  regions?: RhythmRegion[];
   pages: SourcePage[];
   measures: Measure[];
 }
@@ -80,6 +91,9 @@ export interface LocalizationRecord {
   updated_at: string;
 }
 export interface LocDataset {
+  task?: "geometry" | "rhythm";
+  source_dataset_id?: string | null;
+  source_name?: string | null;
   updated_at: string;
   id: string;
   name: string;

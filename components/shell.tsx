@@ -112,7 +112,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 {
                   key: "localization",
                   icon: <Icon name="locate" />,
-                  label: "小节与事件定位",
+                  label: "小节与音符事件",
                 },
               ]}
               onClick={({ key }) =>

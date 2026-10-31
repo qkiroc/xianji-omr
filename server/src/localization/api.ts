@@ -17,6 +17,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import yazl from "yazl";
+import { importRhythmPages } from "./rhythm-import.ts";
+import { annotationWindow, annotationTrend, ANNOTATION_TREND_DAYS } from "../../../shared/annotation-trend.ts";
 import type {
   Geometry,
   LocalizationRecord,
@@ -85,7 +87,7 @@ async function dataset(c: Pool | PoolClient, id: unknown) {
   insist(uuid(id), "定位数据集ID无效");
   const r = await c.query("SELECT * FROM omr_loc_datasets WHERE id=$1", [id]);
   insist(r.rowCount, "定位数据集不存在", 404);
-  return r.rows[0] as { id: string; name: string; version: number };
+  return r.rows[0] as { id: string; name: string; version: number; task: string; source_dataset_id: string | null };
 }
 async function source(
   c: Pool | PoolClient,
@@ -206,7 +208,7 @@ export function registerLocalization(
     res.json(
       (
         await pool.query(
-          "SELECT d.*,count(r.id)::int record_count,count(r.id) FILTER(WHERE r.status='confirmed')::int confirmed_count FROM omr_loc_datasets d LEFT JOIN omr_loc_records r ON r.dataset_id=d.id GROUP BY d.id ORDER BY d.created_at DESC,d.id DESC",
+          "SELECT d.*,s.name source_name,count(r.id)::int record_count,count(r.id) FILTER(WHERE r.status='confirmed')::int confirmed_count FROM omr_loc_datasets d LEFT JOIN omr_datasets s ON s.id=d.source_dataset_id LEFT JOIN omr_loc_records r ON r.dataset_id=d.id GROUP BY d.id,s.name ORDER BY d.created_at DESC,d.id DESC",
         )
       ).rows,
     ),
@@ -216,26 +218,51 @@ export function registerLocalization(
       .status(201)
       .json(
         (
-          await pool.query(
-            "INSERT INTO omr_loc_datasets(id,name,description) VALUES($1,$2,$3) RETURNING *",
-            [
-              randomUUID(),
-              string(req.body.name, "名称"),
-              String(req.body.description || "").slice(0, 2000),
-            ],
-          )
-        ).rows[0],
+          await tx(pool,async c => {
+            await lock(c);
+            const task = req.body.task ?? "geometry";
+            insist(["geometry","rhythm"].includes(task),"标注任务无效");
+            const sourceId = req.body.sourceDatasetId ?? null;
+            insist(sourceId === null || uuid(sourceId),"切图数据集ID无效");
+            if (task === "rhythm") {
+              insist(sourceId && (await c.query("SELECT id FROM omr_datasets WHERE id=$1 AND deleted_at IS NULL",[sourceId])).rowCount,"请选择有效的切图数据集");
+            }
+            const d = (await c.query("INSERT INTO omr_loc_datasets(id,name,description,task,source_dataset_id) VALUES($1,$2,$3,$4,$5) RETURNING *",
+              [randomUUID(),string(req.body.name,"名称"),String(req.body.description || "").slice(0,2000),task,sourceId])).rows[0];
+            const imported = task === "rhythm" && sourceId ? await importRhythmPages(c,d.id,sourceId) : 0;
+            return {...d,imported};
+          })
+        ),
       ),
   );
+  router.post("/localization/datasets/:datasetId/sync",async(req,res) => res.json(await tx(pool,async c => {
+    await lock(c); const d = await dataset(c,req.params.datasetId);
+    insist(d.task === "rhythm" && d.source_dataset_id,"该数据集未关联切图来源");
+    return {imported:await importRhythmPages(c,d.id,d.source_dataset_id)};
+  })));
+  router.get("/localization/datasets/:datasetId/editor",async(req,res) => {
+    const d = await dataset(pool,req.params.datasetId), current = await record(pool,req.query.recordId);
+    insist(current.dataset_id === d.id,"记录不属于此数据集",404);
+    const status = String(req.query.status || ""), split = String(req.query.split || ""), search = String(req.query.search || "");
+    insist(["","draft","confirmed"].includes(status) && ["","train","val","test"].includes(split) && search.length<=200,"队列筛选无效");
+    const parameters = [d.id,current.id,status,split,search];
+    const filters = "dataset_id=$1 AND ($3='' OR status=$3) AND ($4='' OR split=$4) AND ($5='' OR position(lower($5) in lower(title))>0 OR position(lower($5) in lower(corpus_id))>0)";
+    // Read the timestamp cursor in PostgreSQL so JavaScript millisecond precision
+    // cannot make a record its own neighbor or skip pages created in the same ms.
+    const cursor = "(SELECT created_at,id FROM omr_loc_records WHERE id=$2::uuid)";
+    const previous = (await pool.query(`SELECT id FROM omr_loc_records WHERE ${filters} AND (created_at,id)>${cursor} ORDER BY created_at,id LIMIT 1`,parameters)).rows[0];
+    const next = (await pool.query(`SELECT id FROM omr_loc_records WHERE ${filters} AND (created_at,id)<${cursor} ORDER BY created_at DESC,id DESC LIMIT 1`,parameters)).rows[0];
+    res.json({previousId:previous?.id ?? null,nextId:next?.id ?? null});
+  });
   router.get("/localization/datasets/:datasetId/records", async (req, res) => {
-    await dataset(pool, req.params.datasetId);
+    const ds = await dataset(pool, req.params.datasetId);
     const page = Number(req.query.page ?? 1),
       size = Number(req.query.pageSize ?? 50);
     insist(
       Number.isSafeInteger(page) &&
         page > 0 &&
         page < 1000000 &&
-        [25, 50, 100].includes(size),
+        [10, 25, 50, 100].includes(size),
       "分页无效",
     );
     const params: unknown[] = [req.params.datasetId];
@@ -259,7 +286,7 @@ export function registerLocalization(
       where += ` AND (position(lower($${params.length}) in lower(title))>0 OR position(lower($${params.length}) in lower(corpus_id))>0)`;
     }
     const rows = await pool.query(
-      `SELECT id,dataset_id,corpus_id,corpus_revision,title,group_key,split,source,status,version,updated_at,jsonb_array_length(geometry->'measures') measure_count FROM omr_loc_records WHERE ${where} ORDER BY created_at DESC,id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      `SELECT id,dataset_id,corpus_id,corpus_revision,title,group_key,split,source,status,version,updated_at,original->>'pageOrder' page_order,jsonb_array_length(geometry->'measures') measure_count,(SELECT COALESCE(sum(jsonb_array_length(m->'events')),0)::int FROM jsonb_array_elements(geometry->'measures') m) event_count FROM omr_loc_records WHERE ${where} ORDER BY created_at DESC,id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, size, (page - 1) * size],
     );
     const total = Number(
@@ -270,13 +297,21 @@ export function registerLocalization(
         )
       ).rows[0].n,
     );
-    res.json({ items: rows.rows, total, page, pageSize: size });
+    const days = Number(req.query.trendDays || 30);
+    insist((ANNOTATION_TREND_DAYS as readonly number[]).includes(days),"统计范围无效");
+    const window = annotationWindow(days);
+    const daily = (await pool.query(`SELECT to_char(first_labeled_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') date,count(*)::int count,0::int estimated
+      FROM omr_loc_records WHERE dataset_id=$1 AND first_labeled_at>=($2::date::timestamp AT TIME ZONE 'Asia/Shanghai')
+      AND first_labeled_at<(($3::date+interval '1 day') AT TIME ZONE 'Asia/Shanghai') GROUP BY 1 ORDER BY 1`,[ds.id,window.start,window.end])).rows;
+    const stats = (await pool.query("SELECT count(*)::int total,count(*) FILTER(WHERE status='confirmed')::int confirmed FROM omr_loc_records WHERE dataset_id=$1",[ds.id])).rows[0];
+    res.json({ dataset:ds,stats,items: rows.rows, total, page, pageSize: size,annotationTrend:annotationTrend(days,daily,new Date(window.end+'T04:00:00Z')) });
   });
   router.post("/localization/datasets/:datasetId/import", async (req, res) =>
     res.status(200).json(
       await tx(pool, async (c) => {
         await lock(c);
         const ds = await dataset(c, req.params.datasetId);
+        insist(ds.task !== "rhythm", "音符事件数据集请使用关联切图同步生成样本");
         insist(
           Object.keys(object(req.body)).every((k) =>
             [
@@ -519,6 +554,7 @@ export function registerLocalization(
   router.get("/localization/records/:recordId", async (req, res) => {
     const r = await record(pool, req.params.recordId);
     await sourcesValid(pool, r);
+    if (r.geometry.schemaVersion === "omr-rhythm-v1") r.geometry = validateGeometry(r.geometry,r.geometry.pages,{previous:r.geometry});
     res.json(r);
   });
   router.put("/localization/records/:recordId", async (req, res) =>
@@ -535,8 +571,25 @@ export function registerLocalization(
         const geometry = validateGeometry(req.body.geometry, r.geometry.pages, {
           previous: r.geometry,
         });
-        // Measures and events are editable annotation JSON. Source attachments
-        // and immutable snapshots remain intact when geometry is saved.
+        insist(geometry.schemaVersion === r.geometry.schemaVersion,"不能修改记录的标注任务",409);
+        insist(
+          r.geometry.measures.every((m) =>
+            geometry.measures.some((n) => n.id === m.id),
+          ),
+          "删除小节请使用永久删除预览与确认接口",
+          409,
+        );
+        insist(
+          r.geometry.measures.every((m) =>
+            m.events.every((e) =>
+              geometry.measures
+                .find((n) => n.id === m.id)
+                ?.events.some((v) => v.id === e.id),
+            ),
+          ),
+          "删除事件请使用永久删除预览与确认接口",
+          409,
+        );
         const status =
           fingerprint(geometry) === fingerprint(r.geometry)
             ? r.status
@@ -583,7 +636,7 @@ export function registerLocalization(
           });
           return (
             await c.query(
-              "UPDATE omr_loc_records SET geometry=$1,status=$2,version=version+1,confirmed_at=$3,updated_at=now() WHERE id=$4 RETURNING *",
+              "UPDATE omr_loc_records SET geometry=$1,status=$2,version=version+1,confirmed_at=$3,first_labeled_at=CASE WHEN $2='confirmed' THEN COALESCE(first_labeled_at,now()) ELSE first_labeled_at END,updated_at=now() WHERE id=$4 RETURNING *",
               [
                 geometry,
                 action === "confirm" ? "confirmed" : "draft",
@@ -702,6 +755,7 @@ export function registerLocalization(
         );
         const seen = new Set<string>();
         for (const r of records) {
+          if (r.geometry.schemaVersion === "omr-rhythm-v1") r.geometry = validateGeometry(r.geometry,r.geometry.pages,{confirm:true});
           await sourcesValid(c, r, true);
           await noSplitLeak(
             c,
@@ -717,9 +771,9 @@ export function registerLocalization(
           "快照最多3000小节轨道",
         );
         const frozen = {
-            schemaVersion: "omr-localization-snapshot-v1",
+            schemaVersion: ds.task === "rhythm" ? "omr-rhythm-snapshot-v1" : "omr-localization-snapshot-v1",
             dataset: ds,
-            truth: "geometry-only-not-musical-content",
+            truth: ds.task === "rhythm" ? "geometry-and-event-category" : "geometry-only-not-musical-content",
             records,
           },
           hash = fingerprint(frozen),
@@ -745,7 +799,7 @@ export function registerLocalization(
     ).rows[0] as
       | {
           id: string;
-          frozen: { records: LocalizationRecord[] };
+          frozen: { records: LocalizationRecord[]; truth?: string };
           fingerprint: string;
         }
       | undefined;
@@ -774,6 +828,7 @@ export function registerLocalization(
         index = 0,
         pixels = 0;
       const mappings: unknown[] = [];
+      const measureFiles = new Map<string,string>();
       const zip = new yazl.ZipFile(),
         output = join(dir, "crops.zip"),
         done = pipeline(
@@ -796,11 +851,12 @@ export function registerLocalization(
             "冻结来源原图SHA不符",
             409,
           );
-          for (const measure of record.geometry.measures.filter(
-            (m) => m.pageId === page.localPageId,
-          ))
+          for (const measure of [
+            ...(record.geometry.regions ?? []).filter(r => r.pageId === page.localPageId).map(r => ({id:r.id,track:r.track,bbox:r.bbox,events:[] as LocEvent[],isRegion:true})),
+            ...record.geometry.measures.filter(m => m.pageId === page.localPageId).map(m => ({...m,isRegion:false})),
+          ])
             for (const crop of [
-              { kind: "measure", id: measure.id, bbox: measure.bbox },
+              { kind: measure.isRegion ? "region" : "measure", id: measure.id, bbox: measure.bbox },
               ...measure.events
                 .filter((e) => e.status !== "rejected")
                 .map((e) => ({
@@ -834,6 +890,12 @@ export function registerLocalization(
                 mtime: new Date("2000-01-01T00:00:00Z"),
                 mode: 0o100644,
               });
+              if (crop.kind === "measure") measureFiles.set(record.id+":"+measure.id,file);
+              const local = (box: number[]) => [box[0]-b[0],box[1]-b[1],box[2]-b[0],box[3]-b[1]];
+              const eventAnnotations = (m: Measure) => m.events.filter(e => e.status !== "rejected").map(e => ({
+                id:e.id,bbox:e.bbox ? local(e.bbox) : null,anchorX:e.centerX === null ? null : e.centerX-b[0],
+                rhythm:e.rhythm ? {duration:m.track === "lyrics" ? null : e.rhythm.duration} : undefined,
+              }));
               mappings.push({
                 file,
                 kind: crop.kind,
@@ -843,6 +905,19 @@ export function registerLocalization(
                 sourcePageId: page.sourcePageId,
                 sourceSha: page.sourceSha,
                 bbox: b,
+                localToSource: [[1,0,b[0]],[0,1,b[1]],[0,0,1]],
+                track: measure.track,
+                songGroupKey: record.group_key,
+                split: record.split,
+                ...(crop.kind === "region" ? {annotations:record.geometry.measures.filter(m => m.regionId === crop.id).map(m => ({
+                  id:m.id,barNumber:m.barNumber,bbox:m.bbox ? local(m.bbox) : null,events:eventAnnotations(m),
+                }))} : {}),
+                ...(crop.kind === "measure" ? {events:eventAnnotations(measure as Measure),barNumber:(measure as Measure).barNumber} : {}),
+                ...(crop.kind === "event" ? { rhythm:measure.events.find(e => e.id === crop.id)?.rhythm ? {duration:measure.track === "lyrics" ? null : measure.events.find(e => e.id === crop.id)!.rhythm!.duration} : undefined,
+                  anchorX:measure.events.find(e => e.id === crop.id)?.centerX,
+                  localAnchorX:(measure.events.find(e => e.id === crop.id)?.centerX ?? b[0])-b[0],
+                  contextFile:measureFiles.get(record.id+":"+measure.id),
+                  contextBBox:measure.events.find(e => e.id === crop.id)?.contextBBox ?? measure.bbox } : {}),
                 sha256: fingerprintBytes(data),
               });
             }
@@ -850,10 +925,10 @@ export function registerLocalization(
       zip.addBuffer(
         Buffer.from(
           JSON.stringify({
-            schemaVersion: "omr-localization-crops-v1",
+            schemaVersion: r.frozen.truth === "geometry-and-event-category" ? "omr-rhythm-crops-v1" : "omr-localization-crops-v1",
             snapshotId: r.id,
             fingerprint: r.fingerprint,
-            truth: "geometry-only-not-musical-content",
+            truth: r.frozen.truth ?? "geometry-only-not-musical-content",
             crops: mappings,
           }),
         ),

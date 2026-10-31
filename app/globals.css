@@ -1350,3 +1350,27 @@ label:not([class*="ant-"]) > .ant-select { display: inline-flex; width: 100%; ma
 .time-signature-options .key-tonic { height:58px; display:flex; gap:14px; align-items:center; justify-content:center; }
 .time-signature-options kbd { color:inherit; font-size:12px; opacity:.6; }
 @media (max-width:700px) { .time-signature-options { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+/* Measure and musical-event annotation reuses the localization workspace. */
+.rhythm-statistics { margin: 6px 0 22px; }
+.rhythm-filters { margin: 18px 0; }
+.rhythm-editor { grid-template-columns: 210px minmax(0,1fr) 310px; }
+.rhythm-toolbar { gap: 12px; }
+.rhythm-toolbar .ant-space { min-width: 0; }
+.rhythm-toolbar > .ant-space:last-child { justify-content: flex-end; }
+.rhythm-tools { justify-content: space-between; gap: 8px; }
+.rhythm-tools .ant-tabs-nav { margin: 0; }
+.rhythm-row-button.ant-btn { margin-bottom: 7px; height: auto; min-height: 32px; white-space: normal; text-align: left; justify-content: flex-start; padding: 7px 9px; }
+.rhythm-event-button.ant-btn { justify-content: flex-start; height: auto; white-space: normal; margin: 2px 0; }
+.rhythm-stage { overflow: auto; padding: 18px; background: #e9edf3; }
+.rhythm-stage > svg { display: block; background: white; box-shadow: 0 3px 18px #26395814; user-select: none; }
+.rhythm-stage-hint { font-size: 12px; color: #53637a; margin-bottom: 12px; }
+.rhythm-properties > label { display: block; margin: 16px 0 7px; font-size: 12px; color: #5b6980; }
+.rhythm-properties > .ant-select, .rhythm-properties > .ant-input-number { width: 100%; }
+.rhythm-properties .ant-space .ant-input-number { width: 90px; }
+.rhythm-properties > .ant-checkbox-wrapper { margin-top: 12px; }
+.rhythm-duration-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.rhythm-duration-grid .ant-btn { padding: 7px 4px; white-space: normal; height: auto; }
+.rhythm-duration-grid small { opacity: .65; }
+.rhythm-preview { display: block; width: 100%; border: 1px solid var(--line); background: white; }
+.rhythm-totals { margin-top: 14px; }
+@media(max-width:1100px) { .rhythm-editor { grid-template-columns:170px minmax(0,1fr) 275px; } .rhythm-toolbar { grid-template-columns: 1fr auto; } .rhythm-toolbar > .ant-space:nth-child(2) { grid-row: 2; } }

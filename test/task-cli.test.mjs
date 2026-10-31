@@ -125,11 +125,12 @@ test('CLI distribution includes all task, deployment and export modules and star
  assert.equal(sha(await readFile(archive)),checksum);
  const extracted=spawnSync('tar',['-xzf',archive,'-C',dir],{encoding:'utf8'});assert.equal(extracted.status,0,extracted.stderr);
  const root=join(dir,'xianji-omr-cli-'+VERSION),manifest=JSON.parse(await readFile(join(root,'manifest.json'),'utf8'));
- for(const required of ['src/tasks.mjs','src/deploy.mjs','src/export.mjs'])assert.ok(manifest.files[required]);
+ for(const required of ['src/tasks.mjs','src/deploy.mjs','src/export.mjs','src/localization.mjs'])assert.ok(manifest.files[required]);
  const help=spawnSync(process.execPath,[join(root,'xianji-omr.mjs'),'--help'],{cwd:dir,encoding:'utf8'});
  assert.equal(help.status,0,help.stderr);
  const result=JSON.parse(help.stdout);
  assert.ok(result.commands.includes('key-signatures datasets create'));
  assert.ok(result.commands.includes('layout inference predict'));
+ assert.ok(result.commands.includes('localization datasets export'));
  assert.equal(result.version,VERSION);
 });

@@ -6,7 +6,10 @@ import type {
   Json,
   SourcePage,
   Matrix3,
+  RhythmLabel,
+  RhythmRegion,
 } from "../../../shared/localization.ts";
+import { RHYTHM_VALUES, within } from "../../../shared/rhythm.ts";
 export class GeometryError extends Error {
   status: number;
   constructor(message: string, status = 400) {
@@ -106,13 +109,14 @@ export function validateGeometry(
   }: { confirm?: boolean; previous?: Geometry } = {},
 ): Geometry {
   const raw = object(input);
+  const rhythm = raw.schemaVersion === "omr-rhythm-v1";
   insist(
     Object.keys(raw).every((k) =>
-      ["schemaVersion", "pages", "measures"].includes(k),
+      ["schemaVersion", "pages", "measures", ...(rhythm ? ["regions"] : [])].includes(k),
     ),
     "不支持的geometry字段，请保留在original附件",
   );
-  insist(raw.schemaVersion === "omr-localization-v1", "定位schema版本无效");
+  insist(rhythm || raw.schemaVersion === "omr-localization-v1", "定位schema版本无效");
   insist(
     Array.isArray(raw.measures) && raw.measures.length <= 1000,
     "每记录最多1000小节轨道",
@@ -124,6 +128,17 @@ export function validateGeometry(
   );
   const ids = new Set<string>(),
     eventIds = new Set<string>();
+  const regionIds = new Set<string>();
+  if (rhythm) insist(raw.regions == null || (Array.isArray(raw.regions) && raw.regions.length <= 5000), "来源谱行数量无效");
+  const regions: RhythmRegion[] = rhythm ? ((raw.regions ?? []) as unknown[]).map(value => {
+    const r = object(value), id = string(r.id, "谱行ID");
+    insist(!regionIds.has(id), "谱行ID重复"); regionIds.add(id);
+    const page = pages.find(p => p.localPageId === r.pageId);
+    insist(page && ["guitar","melody","lyrics"].includes(String(r.track)), "谱行来源或轨道无效");
+    return { id, pageId: page.localPageId, systemId: r.systemId == null ? null : string(r.systemId,"完整谱行ID"),
+      track: r.track as RhythmRegion["track"], bbox: bbox(r.bbox,page,false)! };
+  }) : [];
+  if (rhythm && previous) insist(fingerprint(regions) === fingerprint(previous.regions ?? []), "来源谱行不可修改",409);
   const measures: Measure[] = raw.measures.map((value) => {
     const m = object(value);
     insist(
@@ -141,6 +156,7 @@ export function validateGeometry(
           "geometryConfirmed",
           "completenessConfirmed",
           "reviewNote",
+          ...(rhythm ? ["regionId", "timeSignature", "partial"] : []),
         ].includes(k),
       ),
       "不支持的小节几何字段，请保留在original附件",
@@ -151,13 +167,18 @@ export function validateGeometry(
     const page = pages.find((p) => p.localPageId === m.pageId);
     insist(page, "小节来源页不存在");
     insist(
-      m.track === "guitar" || m.track === "melody",
+      m.track === "guitar" || m.track === "melody" || (rhythm && m.track === "lyrics"),
       "轨道只支持guitar/melody",
     );
-    const voice = string(m.voice, "声部", 80),
+    const voice = rhythm ? "1" : string(m.voice, "声部", 80),
       box = bbox(m.bbox, page, !confirm);
+    const region = m.regionId == null ? null : regions.find(r => r.id === m.regionId);
+    if (rhythm && m.regionId != null) {
+      insist(region && region.pageId === page.localPageId && region.track === m.track, "小节所属谱行与轨道不匹配");
+      if (box) insist(within(box,region.bbox), "小节框必须位于所属谱行内");
+    }
     let staffLines: number[] | null = null;
-    if (m.staffLines != null) {
+    if (!rhythm && m.staffLines != null) {
       insist(
         Array.isArray(m.staffLines) &&
           m.staffLines.length === 6 &&
@@ -178,7 +199,7 @@ export function validateGeometry(
           "弦线超出小节框",
         );
     }
-    if (confirm && m.track === "guitar")
+    if (confirm && !rhythm && m.track === "guitar")
       insist(staffLines, "吉他轨道确认需要六根弦线");
     insist(
       Array.isArray(m.events) && m.events.length <= 5000,
@@ -198,6 +219,7 @@ export function validateGeometry(
             "evidence",
             "annotationSource",
             "confidence",
+            ...(rhythm ? ["rhythm"] : []),
           ].includes(k),
         ),
         "不支持的事件几何字段，请保留在original附件",
@@ -217,6 +239,13 @@ export function validateGeometry(
       );
       const eb = bbox(e.bbox, page),
         context = bbox(e.contextBBox, page);
+      if (rhythm && e.status !== "rejected") {
+        insist(center === null || Number.isSafeInteger(center), "音符事件锚点必须是整数像素");
+        if (box && eb) insist(within(eb,box), "事件框必须在小节内");
+        if (center !== null && eb) insist(center >= eb[0] && center <= eb[2], "事件框必须包含锚点");
+        if (confirm) insist(eb, "确认前请补齐每个音符/歌词事件的选区");
+      }
+      const label = rhythm ? rhythmLabel(e.rhythm, String(m.track), confirm && e.status !== "rejected") : undefined;
       if (confirm && e.status !== "rejected") {
         insist(
           center !== null && box && center >= box[0] && center <= box[2],
@@ -240,7 +269,7 @@ export function validateGeometry(
       }
       return {
         id: eid,
-        voice: string(e.voice ?? voice, "事件声部", 80),
+        voice: rhythm ? "1" : string(e.voice ?? voice, "事件声部", 80),
         centerX: center as number | null,
         bbox: eb,
         contextBBox: context,
@@ -250,9 +279,10 @@ export function validateGeometry(
           [k: string]: Json;
         },
         confidence: finite(e.confidence) ? e.confidence : null,
+        ...(rhythm ? { rhythm: label! } : {}),
       };
     });
-    if (confirm) {
+    if (confirm && !rhythm) {
       const last = new Map<string, number>();
       for (const e of events.filter((e) => e.status !== "rejected")) {
         insist(e.centerX !== null, "事件缺少中心");
@@ -269,7 +299,8 @@ export function validateGeometry(
       systemId: m.systemId == null ? null : string(m.systemId, "谱行ID"),
       barNumber: m.barNumber == null ? null : Number(m.barNumber),
       track: m.track,
-      voice,
+      ...(rhythm ? { regionId: region?.id ?? null } : {}),
+      voice: rhythm ? "1" : voice,
       bbox: box,
       staffLines,
       events,
@@ -305,5 +336,17 @@ export function validateGeometry(
     "记录事件总数过多",
   );
   if (confirm) insist(measures.length > 0, "没有可确认的小节");
-  return { schemaVersion: "omr-localization-v1", pages, measures };
+  if (rhythm) {
+    if (confirm) for (const region of regions) insist(measures.some(m => m.regionId === region.id), "请为每个来源谱行标注小节后再确认整页");
+  }
+  return { schemaVersion: rhythm ? "omr-rhythm-v1" : "omr-localization-v1", pages, measures, ...(rhythm ? {regions} : {}) };
+}
+
+function rhythmLabel(value: unknown, track: string, confirm: boolean): RhythmLabel {
+  const v = value == null ? {duration:null} : object(value);
+  // This stage labels regions only. Discard previously supplied musical content
+  // rather than exporting it as reviewed truth or making it block confirmation.
+  insist(v.duration == null || RHYTHM_VALUES.includes(v.duration as any), "时值必须为全音符到32分音符");
+  if (confirm && track !== "lyrics") insist(v.duration != null, "确认前请选择事件区域类别");
+  return {duration:track === "lyrics" ? null : (v.duration ?? null) as RhythmLabel["duration"]};
 }

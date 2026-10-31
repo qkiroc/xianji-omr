@@ -1,4 +1,4 @@
-import { DatasetList } from "../../../components/catalogue/datasets";
+import { LocalizationDatasets } from "../../../components/localization/datasets";
 export default function Page() {
-  return <DatasetList localization />;
+  return <LocalizationDatasets />;
 }

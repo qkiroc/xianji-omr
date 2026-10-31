@@ -1,0 +1,56 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {createHash} from 'node:crypto';
+import {spawn} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {fixture} from './fixture.mjs';
+import {localizationSetup} from './localization-helpers.mjs';
+import {json} from './cli-helpers.mjs';
+import {localizationCommand} from '../tools/cli/src/localization.mjs';
+
+const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
+test('localization CLI: real process creates, synchronizes, filters, edits, confirms and exports region-only training data',async t=>{
+ const f=await fixture({port:55475});t.after(()=>f.close());const s=await localizationSetup(f);
+ const dir=await mkdtemp(join(process.env.OMR_TEST_TMP_DIR||tmpdir(),'region-cli-')),config=join(dir,'xianji-omr');await mkdir(config,{mode:0o700});
+ await writeFile(join(config,sha(f.url)+'.json'),JSON.stringify({origin:f.url,token:s.grant.token}),{mode:0o600});
+ const run=args=>new Promise((resolve,reject)=>{
+  const child=spawn(process.execPath,[fileURLToPath(new URL('../tools/cli/xianji-omr.mjs',import.meta.url)),...args,'--origin',f.url],{cwd:dir,env:{...process.env,XDG_CONFIG_HOME:dir},windowsHide:true});
+  let stdout='',stderr='';child.stdout.on('data',b=>stdout+=b);child.stderr.on('data',b=>stderr+=b);child.on('error',reject);
+  child.on('exit',code=>{let value;try{value=JSON.parse(code===0?stdout:stderr);}catch{}resolve({code,value,stderr});});
+ });
+ const ok=async args=>{const r=await run(args);assert.equal(r.code,0,r.stderr);return r.value;};
+ const box=(id,classKey,y,height,parentSystemId='system')=>({id,classKey,parentSystemId,readingOrder:y,x:0,y,width:200,height});
+ let page=await s.api('/pages/'+s.page.image.id,json({version:s.page.image.version,annotationFormat:'layout-v2',boxes:[box('system','system',0,160,null),box('guitar','guitar',0,90),box('lyrics','lyrics',100,60)]},'PUT'));
+ await s.api('/pages/'+page.image.id+'/confirm',json({version:page.image.version,acknowledged:true}));
+ const input=join(dir,'create.json');await writeFile(input,'\uFEFF'+JSON.stringify({name:'CLI region labels',sourceDatasetId:s.dataset.id}));
+ const ds=await ok(['localization','datasets','create','--input',input]);assert.equal(ds.task,'rhythm');assert.equal(ds.imported,1);
+ assert.equal((await ok(['localization','datasets','sync',ds.id])).imported,0);
+ const list=await ok(['localization','records','list',ds.id,'--status','draft','--split','train','--search',s.song.name,'--trend-days','7','--page-size','10']);
+ assert.equal(list.total,1);assert.equal(list.annotationTrend.days,7);assert.equal(list.pageSize,10);
+ let r=await ok(['localization','records','get',list.items[0].id]);
+ const neighbors=await ok(['localization','records','neighbors',r.id,'--dataset',ds.id,'--status','draft']);assert.deepEqual(neighbors,{previousId:null,nextId:null});
+ const geometry=structuredClone(r.geometry);geometry.measures=geometry.regions.map((region,i)=>({id:'m-'+i,pageId:region.pageId,regionId:region.id,systemId:region.systemId,barNumber:1,track:region.track,bbox:region.bbox,events:[{id:'e-'+i,centerX:50,bbox:[40,region.bbox[1],60,region.bbox[3]],contextBBox:null,status:'accepted',evidence:{},annotationSource:{},confidence:null,rhythm:{duration:region.track==='lyrics'?null:8}}],geometryConfirmed:false,completenessConfirmed:false,reviewNote:''}));
+ const update=join(dir,'regions.json');await writeFile(update,JSON.stringify({version:r.version,geometry}));
+ r=await ok(['localization','records','update',r.id,'--input',update]);assert.deepEqual(r.geometry.measures[0].events[0].rhythm,{duration:8});
+ const refused=await run(['localization','records','confirm',r.id,'--version',String(r.version)]);assert.equal(refused.value.error.code,'CONFIRM');
+ r=await ok(['localization','records','confirm',r.id,'--version',String(r.version),'--acknowledge']);assert.equal(r.status,'confirmed');
+ const native=join(dir,'regions.json.export');const exported=await ok(['localization','datasets','export',ds.id,'--record',r.id,'--kind','native','--output',native]);
+ const bytes=await readFile(native),frozen=JSON.parse(bytes);assert.equal(sha(bytes),exported.checksum);assert.equal(frozen.truth,'geometry-and-event-category');assert.deepEqual(frozen.records[0].geometry.measures[0].events[0].rhythm,{duration:8});
+ const snaps=await ok(['localization','snapshots','list',ds.id]);assert.equal(snaps.length,1);
+ const exists=await run(['localization','datasets','export',ds.id,'--output',native]);assert.equal(exists.value.error.code,'EXISTS');assert.equal((await ok(['localization','snapshots','list',ds.id])).length,1);
+ const zip=join(dir,'regions.zip');const zipResult=await ok(['localization','snapshots','download',exported.snapshotId,'--kind','crops','--output',zip]);assert.equal((await readFile(zip)).subarray(0,2).toString(),'PK');assert.equal(sha(await readFile(zip)),zipResult.checksum);
+ const png=join(dir,'source.png');await ok(['localization','sources','content',page.image.id,'--output',png]);assert.deepEqual((await readFile(png)).subarray(0,8),Buffer.from([137,80,78,71,13,10,26,10]));
+ r=await ok(['localization','events','reject',r.id,'--event','e-0','--version',String(r.version)]);assert.equal(r.status,'draft');
+ r=await ok(['localization','events','restore',r.id,'--event','e-0','--version',String(r.version)]);assert.equal(r.geometry.measures[0].events[0].status,'candidate');
+ r=await ok(['localization','records','confirm',r.id,'--version',String(r.version),'--acknowledge']);r=await ok(['localization','records','unconfirm',r.id,'--version',String(r.version)]);assert.equal(r.status,'draft');
+});
+test('localization CLI rejects missing navigation scope and unsupported export selection before requests',async()=>{
+ const id='00000000-0000-4000-8000-000000000001';let calls=0;const request=async()=>{calls++;return Response.json({});};
+ await assert.rejects(localizationCommand(['localization','records','neighbors',id],{},{request}),e=>e.code==='ARGUMENT');
+ await assert.rejects(localizationCommand(['localization','records','list',id],{'trend-days':'8'},{request}),e=>e.code==='ARGUMENT');
+ await assert.rejects(localizationCommand(['localization','datasets','export',id],{classes:'guitar'},{request}),e=>e.code==='ARGUMENT');
+ assert.equal(calls,0);
+});

@@ -197,3 +197,44 @@ node tools/cli/xianji-omr.mjs platform logs JOB_UUID --origin https://omr.exampl
 
 页面入口调整为切图标注下的三个子 tab，模型页面位于 /layout/training、/layout/models；旧 /training、/models 链接保留跳转。既有训练 worker API 保持兼容。源码仓库的完整流程和输入示例见 docs/key-signature-annotation.md。
 拍号标注：与 key-signatures 相同的 datasets list/create/sync/export 和 records list/get/update/content/next 命令均支持 time-signatures 前缀。保存 JSON 使用 version、numerator、denominator，列表支持 --numerator、--denominator；两种标注列表均支持 --trend-days 7/14/30/90 并返回 annotationTrend。数据库需 schema13。
+## 小节与音符事件 CLI（0.9.0）
+
+沿用 `localization` 命名空间。本阶段只标注区域与基础类别，不要求事件类型、附点、连音、声部、延音关系或歌词内容。
+
+| 能力 | 命令 |
+| --- | --- |
+| 数据集 | `localization datasets list/create/sync` |
+| 谱页列表与每日统计 | `localization records list DATASET_ID --status draft --split train --trend-days 7` |
+| 筛选下的上一页 / 下一页 | `localization records neighbors RECORD_ID --dataset DATASET_ID --status draft` |
+| 读取 / 保存区域 | `localization records get/update RECORD_ID` |
+| 确认 / 取消确认 | `localization records confirm/unconfirm RECORD_ID --version N`（确认另加 `--acknowledge`） |
+| 拒绝 / 恢复候选框 | `localization events reject/restore RECORD_ID --event EVENT_ID --version N` |
+| 来源图片 | `localization sources content PAGE_ID --output page.png` |
+| 快照 | `localization snapshots list/create DATASET_ID` |
+| 快照下载 | `localization snapshots download SNAPSHOT_ID --kind native/crops --output FILE` |
+| 一步冻结并导出 | `localization datasets export DATASET_ID --kind native/crops --output FILE` |
+
+PowerShell 示例：
+
+```powershell
+$origin = "http://localhost:4173"
+$cli = "tools/cli/xianji-omr.mjs"
+# 首次连接此 origin 时，先执行 auth；已有该 origin 的授权则复用。
+node $cli auth --origin $origin
+node $cli localization datasets create --name "音符事件标注" --source CUT_DATASET_ID --origin $origin
+node $cli localization datasets sync DATASET_ID --origin $origin
+node $cli localization records list DATASET_ID --status draft --trend-days 7 --origin $origin
+node $cli localization records get RECORD_ID --origin $origin | Set-Content -Encoding UTF8 record.json
+# 修改 record.json 中的 geometry.measures，保留 pages / regions 及版本号。
+node $cli localization records update RECORD_ID --input record.json --origin $origin
+node $cli localization records confirm RECORD_ID --version NEW_VERSION --acknowledge --origin $origin
+node $cli localization datasets export DATASET_ID --kind crops --output regions.zip --origin $origin
+```
+
+创建也支持 `--input create.json`，内容为 `{"name":"音符事件标注","sourceDatasetId":"切图数据集 UUID"}`，自动选择 rhythm 任务。输入支持 UTF-8 和 Windows PowerShell 写出的 UTF-8 BOM 文件。
+
+列表支持 `--source`、`--search`、`--status`、`--split`、`--page`、`--page-size`、`--trend-days`。翻页命令必须同时指定记录和数据集，返回当前筛选下的 `previousId` / `nextId`，不会遗漏记录 ID。
+
+冻结 / 一步导出只包含已确认谱页。使用 `--record RECORD_ID` 导出单页，或用 `--input selection.json`（`{"recordIds":["记录 UUID"]}`）选择 1–100 页。`native` 为原生 JSON，`crops` 为裁片 ZIP，默认一步导出为 crops、直接下载快照为 native。结果包含快照 ID 和文件 SHA256；下载校验失败不会留下成品，也不会覆盖已有文件。
+
+永久删除沿用 `deletions preview` → `deletions execute --acknowledge`。选择 JSON 使用 `locDataset` / `locRecord` / `locMeasure` / `locEvent`，小节和事件 ID 放在 `regionIds`，所属记录 ID 放在 `ids`。版本冲突时重新读取记录，不能直接复用旧 version。

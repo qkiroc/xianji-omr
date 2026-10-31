@@ -8,13 +8,14 @@ const require = createRequire(import.meta.url);
 const compiled = new Map();
 const output = new URL("../.test-data/ui-compiled/", import.meta.url);
 await mkdir(output, { recursive: true });
-export async function compile(file) {
-  if (compiled.has(file)) return compiled.get(file);
+export async function compile(file, imports = {}) {
+  const key = JSON.stringify([file, imports]);
+  if (compiled.has(key)) return compiled.get(key);
   const target = new URL(
-    createHash("sha256").update(file).digest("hex") + ".mjs",
+    createHash("sha256").update(key).digest("hex") + ".mjs",
     output,
   );
-  compiled.set(file, target.href);
+  compiled.set(key, target.href);
   let code = ts.transpileModule(await readFile(file, "utf8"), {
     fileName: file,
     compilerOptions: {
@@ -26,12 +27,13 @@ export async function compile(file) {
   const matches = [...code.matchAll(/from\s+["']([^"']+)["']/g)];
   for (const m of matches) {
     let dest;
-    if (m[1].startsWith(".")) {
+    if (imports[m[1]]) dest = imports[m[1]];
+    else if (m[1].startsWith(".")) {
       let base = resolve(dirname(file), m[1]);
       for (const ext of [".ts", ".tsx", ".mjs", ".js"]) {
         try {
           await readFile(base + ext);
-          dest = await compile(base + ext);
+          dest = await compile(base + ext, imports);
           break;
         } catch (e) {
           if (e.code !== "ENOENT") throw e;

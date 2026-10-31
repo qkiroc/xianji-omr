@@ -7,4 +7,4 @@ if errorlevel 1 (
   call npm ci --no-audit --no-fund
   if errorlevel 1 exit /b 1
 )
-node tools/dev/start.mjs
+node --watch --watch-path=server/src --watch-path=shared tools/dev/start.mjs

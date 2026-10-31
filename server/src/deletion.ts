@@ -436,6 +436,7 @@ export function createDeletionService({ pool, storage, config }: any) {
           (p.keyRecords || []).map((r: any) => r.id),
         ]);
         await c.query("UPDATE omr_key_datasets SET source_dataset_id=NULL,updated_at=now() WHERE source_dataset_id=ANY($1::uuid[])", [p.datasets]);
+          await c.query("UPDATE omr_loc_datasets SET source_dataset_id=NULL,updated_at=now() WHERE source_dataset_id=ANY($1::uuid[])", [p.datasets]);
         if (p.input.kind === "region") {
           const page = (
             await c.query("SELECT boxes FROM omr_images WHERE id=$1", [
