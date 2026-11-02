@@ -1,5 +1,7 @@
 import {TASK_COMMANDS} from "./tasks.mjs";
 export const COMMANDS=[
+ ['localization crops import','POST','/api/v2/localization/datasets/:datasetId/crops'],
+ ['localization datasets detach','POST','/api/v2/localization/datasets/:datasetId/detach'],
  ['localization records content','GET','/api/v2/localization/records/:recordId/content'],
  ['localization datasets sync','POST','/api/v2/localization/datasets/:datasetId/sync'],['localization records neighbors','GET','/api/v2/localization/datasets/:datasetId/editor'],
  ['deletions list','GET','/api/v2/deletions'],['deletions preview','POST','/api/v2/deletions/preview'],['deletions execute','POST','/api/v2/deletions/execute'],['deletions retry','POST','/api/v2/deletions/:jobId/retry'],

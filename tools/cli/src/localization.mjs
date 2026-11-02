@@ -56,13 +56,16 @@ export async function localizationCommand(words,o,{request,signal}){
    if(o.name!==undefined)body.name=o.name;
    if(o.source!==undefined){if(body.sourceDatasetId&&body.sourceDatasetId!==o.source)fail('ARGUMENT','切图来源参数冲突');body.sourceDatasetId=uuid(o.source,'--source');}
    if(typeof body.name!=='string'||!body.name.trim())fail('INPUT','创建数据集需要 name 或 --name');
+   body.task??='rhythm';
    if(body.sourceDatasetId){uuid(body.sourceDatasetId,'sourceDatasetId');body.task??='rhythm';}
-   if(body.task==='rhythm'&&!body.sourceDatasetId)fail('INPUT','音符事件数据集需要关联 sourceDatasetId 或 --source');
-  }else if(command.command==='localization datasets sync')body={};
+  }else if(command.command==='localization datasets sync'){body=o.input?await jsonInput(o.input):{};if(o.source)body.sourceDatasetId=uuid(o.source,'--source');}
+  else if(command.command==='localization datasets detach')body={};
   else if(command.command.endsWith('snapshots create'))body=await selection(o);
   else if(command.command.endsWith(' confirm')){
    if(!o.acknowledge)fail('CONFIRM','确认区域标注必须显式提供 --acknowledge');
-   body={version:versionInput(o),acknowledged:true};
+   const input=o.input?await jsonInput(o.input):{};
+   body={...input,version:o.version!==undefined?versionInput(o):input.version,acknowledged:true};
+   if(!Number.isSafeInteger(body.version)||body.version<1)fail('VERSION','确认需要有效版本号');
   }else if(command.command.endsWith(' unconfirm')||command.command.startsWith('localization events '))body={version:versionInput(o)};
   else{body=await jsonInput(o.input);if(command.method==='PUT'&&(!Number.isSafeInteger(body.version)||body.version<1))fail('VERSION','修改 JSON 必须包含正整数 version');}
   options=jsonBody(body,command.method);

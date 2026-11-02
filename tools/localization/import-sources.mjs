@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+import {createHash} from "node:crypto";
 import {parseArgs} from 'node:util';
 import {pathToFileURL, fileURLToPath} from 'node:url';
 import {mkdir, writeFile} from 'node:fs/promises';
@@ -9,8 +9,8 @@ import {client, jsonBody, limitedJSON} from '../cli/src/http.mjs';
 // Use the same authenticated HTTP client and credential store as the platform CLI.
 // Do not retry POST requests: a lost response can still mean a committed import.
 export async function importSources({request, health, sourceIds=[], dryRun=false, log=()=>{}, checkpoint=async()=>{}}) {
-  if(health?.ok!==true||!Number.isSafeInteger(health.schema)||health.schema<15) {
-    throw new Error(`线上版本尚不支持来源导入（schema ${health?.schema??'未知'}，需要 >=15）。请先提交并推送本次小节与事件功能代码，再部署到 ECS；本次没有创建或导入数据。`);
+  if(health?.ok!==true||!Number.isSafeInteger(health.schema)||health.schema<16) {
+    throw new Error(`线上版本尚不支持来源导入（schema ${health?.schema??'未知'}，需要 >=16）。请先提交并推送本次小节与事件功能代码，再部署到 ECS；本次没有创建或导入数据。`);
   }
   const sources=await limitedJSON(await request('/api/v2/datasets'));
   const targets=await limitedJSON(await request('/api/v2/localization/datasets'));
@@ -24,7 +24,8 @@ export async function importSources({request, health, sourceIds=[], dryRun=false
   await checkpoint(report);
   for(const [index, source] of selected.entries()) {
     log(`[${index+1}/${selected.length}] ${source.name}（已确认 ${source.confirmed_count??'?'} 页）`);
-    const linked=targets.filter(t=>t.task==='rhythm'&&t.source_dataset_id===source.id);
+    const importKey=createHash('sha256').update('layout-crops:'+source.id).digest('hex');
+    const linked=targets.filter(t=>t.task==='rhythm'&&(t.import_key===importKey||t.source_dataset_id===source.id));
     if(!linked.length&&Number(source.confirmed_count)===0) {
       report.actions.push({sourceId:source.id,operation:'skip',reason:'no-confirmed-pages'});
       log('  跳过：没有已确认谱页。');
@@ -42,8 +43,8 @@ export async function importSources({request, health, sourceIds=[], dryRun=false
       try {
         const result=await limitedJSON(await request(target
           ?`/api/v2/localization/datasets/${target.id}/sync`
-          :'/api/v2/localization/datasets',jsonBody(target?{}:{
-            name:('小节与事件 · '+source.name).slice(0,200),task:'rhythm',sourceDatasetId:source.id,
+          :'/api/v2/localization/datasets',jsonBody(target?{sourceDatasetId:source.id}:{
+            name:('小节与事件 · '+source.name).slice(0,200),task:'rhythm',sourceDatasetId:source.id,importKey,
             description:'从已确认谱页按完整谱行生成样本，供人工标注小节与事件区域。',
           })));
         if(!Number.isSafeInteger(result.imported)||result.imported<0||(!target&&!result.id)) throw Object.assign(new Error('导入接口响应缺少有效的 imported/id；操作可能已提交，已停止后续操作，请核对服务端版本和数据集列表。'),{code:'IMPORT_RESPONSE'});

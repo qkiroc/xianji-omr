@@ -187,6 +187,10 @@ export function validateGeometry(
       insist(region && region.pageId === page.localPageId && region.track === m.track, "小节所属谱行与轨道不匹配");
       if (box) insist(within(box,region.bbox), "小节框必须位于所属谱行内");
     }
+    if(rhythm&&!raw.sample&&box) {
+      insist(region,"请为小节选择谱行");
+      insist(box[1]===region.bbox[1]&&box[3]===region.bbox[3],"小节选区必须贯穿谱行高度");
+    }
     let staffLines: number[] | null = null;
     if (!rhythm && m.staffLines != null) {
       insist(
@@ -241,7 +245,7 @@ export function validateGeometry(
         ["candidate", "accepted", "rejected"].includes(String(e.status)),
         "事件状态无效",
       );
-      const center = e.centerX == null ? null : e.centerX;
+      const center = rhythm&&Array.isArray(e.bbox) ? Math.round((Number(e.bbox[0])+Number(e.bbox[2]))/2) : e.centerX == null ? null : e.centerX;
       insist(
         center === null ||
           (finite(center) && center >= 0 && center <= page.width),
@@ -250,6 +254,7 @@ export function validateGeometry(
       const eb = bbox(e.bbox, page),
         context = bbox(e.contextBBox, page);
       if (rhythm && e.status !== "rejected") {
+        if(!raw.sample&&box&&eb) insist(eb[1]===box[1]&&eb[3]===box[3],"事件选区必须贯穿谱行高度");
         insist(center === null || Number.isSafeInteger(center), "音符事件锚点必须是整数像素");
         if (box && eb) insist(within(eb,box), "事件框必须在小节内");
         if (center !== null && eb) insist(center >= eb[0] && center <= eb[2], "事件框必须包含锚点");
@@ -347,6 +352,13 @@ export function validateGeometry(
   );
   if (confirm) insist(measures.length > 0, "没有可确认的小节");
   if (rhythm) {
+    const groups=new Map<string,{regionId:string|null|undefined;actual:number;normal:number}>();
+    for(const m of measures)for(const e of m.events){
+      const t=e.rhythm?.tuplet;if(e.status==="rejected"||!t?.groupId)continue;
+      const old=groups.get(t.groupId);
+      insist(!old||(old.regionId===m.regionId&&old.actual===t.actual&&old.normal===t.normal),"同组连音必须属于同一谱行并使用相同比例");
+      groups.set(t.groupId,{regionId:m.regionId,actual:t.actual,normal:t.normal});
+    }
     if (confirm) for (const region of regions) insist(measures.some(m => m.regionId === region.id), "请为每个来源谱行标注小节后再确认整页");
   }
   return { schemaVersion: rhythm ? "omr-rhythm-v1" : "omr-localization-v1", pages, measures, ...(rhythm ? {regions,...(sample?{sample}:{})} : {}) };
@@ -354,9 +366,23 @@ export function validateGeometry(
 
 function rhythmLabel(value: unknown, track: string, confirm: boolean): RhythmLabel {
   const v = value == null ? {duration:null} : object(value);
-  // This stage labels regions only. Discard previously supplied musical content
-  // rather than exporting it as reviewed truth or making it block confirmation.
+  // Lyrics have spatial regions but no rhythmic label. Musical events preserve
+  // everything that changes timing; old duration-only labels remain compatible.
+  if(track==="lyrics")return {duration:null};
   insist(v.duration == null || RHYTHM_VALUES.includes(v.duration as any), "时值必须为全音符到32分音符");
   if (confirm && track !== "lyrics") insist(v.duration != null, "确认前请选择事件区域类别");
-  return {duration:track === "lyrics" ? null : (v.duration ?? null) as RhythmLabel["duration"]};
+  const label:RhythmLabel={duration:(v.duration??null) as RhythmLabel["duration"]};
+  insist(v.dots==null||(Number.isSafeInteger(v.dots)&&Number(v.dots)>=0&&Number(v.dots)<=3),"附点数量必须为 0–3");
+  if(v.dots)label.dots=v.dots as 1|2|3;
+  insist(v.kind==null||["note","rest"].includes(String(v.kind)),"音符类型无效");
+  if(v.kind==="rest")label.kind="rest";
+  insist(v.tie==null||["none","start","continue","stop"].includes(String(v.tie)),"延音线标记无效");
+  if(v.tie&&v.tie!=="none")label.tie=v.tie as RhythmLabel["tie"];
+  insist(!(label.kind==="rest"&&label.tie),"休止符不能连接延音线");
+  if(v.tuplet!=null){
+    const t=object(v.tuplet),actual=Number(t.actual),normal=Number(t.normal);
+    insist(Number.isSafeInteger(t.actual)&&Number.isSafeInteger(t.normal)&&actual>=2&&actual<=16&&normal>=1&&normal<=16&&actual!==normal,"连音比例无效");
+    label.tuplet={actual,normal,...(t.groupId==null?{}:{groupId:string(t.groupId,"连音分组",200)})};
+  }
+  return label;
 }

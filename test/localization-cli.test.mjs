@@ -27,7 +27,7 @@ test('localization CLI: real process creates, synchronizes, filters, edits, conf
  await s.api('/pages/'+page.image.id+'/confirm',json({version:page.image.version,acknowledged:true}));
  const input=join(dir,'create.json');await writeFile(input,'\uFEFF'+JSON.stringify({name:'CLI region labels',sourceDatasetId:s.dataset.id}));
  const ds=await ok(['localization','datasets','create','--input',input]);assert.equal(ds.task,'rhythm');assert.equal(ds.imported,1);
- assert.equal((await ok(['localization','datasets','sync',ds.id])).imported,0);
+ assert.equal((await ok(['localization','datasets','sync',ds.id,'--source',s.dataset.id])).imported,0);
  const list=await ok(['localization','records','list',ds.id,'--status','draft','--split','train','--search',s.song.name,'--trend-days','7','--page-size','10']);
  assert.equal(list.total,1);assert.equal(list.annotationTrend.days,7);assert.equal(list.pageSize,10);
  let r=await ok(['localization','records','get',list.items[0].id]);
@@ -40,7 +40,7 @@ test('localization CLI: real process creates, synchronizes, filters, edits, conf
  const refused=await run(['localization','records','confirm',r.id,'--version',String(r.version)]);assert.equal(refused.value.error.code,'CONFIRM');
  r=await ok(['localization','records','confirm',r.id,'--version',String(r.version),'--acknowledge']);assert.equal(r.status,'confirmed');
  const native=join(dir,'regions.json.export');const exported=await ok(['localization','datasets','export',ds.id,'--record',r.id,'--kind','native','--output',native]);
- const bytes=await readFile(native),frozen=JSON.parse(bytes);assert.equal(sha(bytes),exported.checksum);assert.equal(frozen.truth,'geometry-and-event-category');assert.deepEqual(frozen.records[0].geometry.measures[0].events[0].rhythm,{duration:8});
+ const bytes=await readFile(native),frozen=JSON.parse(bytes);assert.equal(sha(bytes),exported.checksum);assert.equal(frozen.truth,'geometry-and-rhythm');assert.deepEqual(frozen.records[0].geometry.measures[0].events[0].rhythm,{duration:8});
  const snaps=await ok(['localization','snapshots','list',ds.id]);assert.equal(snaps.length,1);
  const exists=await run(['localization','datasets','export',ds.id,'--output',native]);assert.equal(exists.value.error.code,'EXISTS');assert.equal((await ok(['localization','snapshots','list',ds.id])).length,1);
  const zip=join(dir,'regions.zip');const zipResult=await ok(['localization','snapshots','download',exported.snapshotId,'--kind','crops','--output',zip]);assert.equal((await readFile(zip)).subarray(0,2).toString(),'PK');assert.equal(sha(await readFile(zip)),zipResult.checksum);

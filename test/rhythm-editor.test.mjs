@@ -20,17 +20,18 @@ const click=async element=>{assert.ok(element,'button exists');await act(async()
 const button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text);
 const key=async(key,extra={})=>act(async()=>window.dispatchEvent(new window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...extra})));
 test('actual editor: draw measure/event, set region categories without musical-content fields, undo/redo, crop view and save keyboard on Windows/Mac',async()=>{
- let remote=structuredClone(initial),savedBody;const originalFetch=globalThis.fetch;
+ let remote=structuredClone(initial),savedBody;const writes=[];const originalFetch=globalThis.fetch;
  globalThis.fetch=async(path,opts={})=>{
   if(String(path).endsWith('/content'))return new Response(new Blob(['image'],{type:'image/png'}));
   if(String(path).includes('/editor?'))return Response.json({previousId:null,nextId:null});
+  if(opts.method)writes.push(opts.method);
   if(opts.method==='PUT'){savedBody=JSON.parse(opts.body);remote={...remote,version:remote.version+1,geometry:savedBody.geometry};}
   return Response.json(remote);
  };
  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
  try{
   await act(async()=>{root.render(h(UiProvider,null,h(LocalizationEditor,{datasetId:'d',recordId:'r'})));});
-  const svg=host.querySelector('svg[aria-label="小节与音符事件选区"]');assert.ok(svg);
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});const svg=host.querySelector('svg[role="img"]');assert.ok(svg,host.innerHTML);
   svg.getScreenCTM=()=>({inverse:()=>({})});svg.createSVGPoint=()=>({x:0,y:0,matrixTransform(){return{x:this.x,y:this.y};}});svg.setPointerCapture=()=>{};
   const draw=async(x1,y1,x2,y2)=>{
    await act(async()=>svg.dispatchEvent(new window.PointerEvent('pointerdown',{button:0,pointerId:1,clientX:x1,clientY:y1,bubbles:true})));
@@ -39,15 +40,20 @@ test('actual editor: draw measure/event, set region categories without musical-c
   };
   await click(button('画小节 M'));await draw(10,10,190,90);assert.ok(host.querySelector('[data-kind="move-measure"]'));
   await click(button('画事件 E'));await draw(40,20,70,80);assert.ok(host.querySelector('[data-kind="move-event"]'));
-  assert.doesNotMatch(host.querySelector('.rhythm-properties').textContent,/事件类型|附点|连音比例|声部|延音到|歌词段落/);
-  await key('4');assert.equal(host.querySelector('.rhythm-properties .ant-tag').textContent,'八分音符');
+  assert.match(host.querySelector('.rhythm-properties').textContent,/附点.*连音.*延音线/);
+  assert.equal(writes.length,0);await key('4');assert.equal(host.querySelector('.rhythm-properties .ant-tag').textContent,'八分音符');
   await key('3');assert.equal(host.querySelector('.rhythm-properties .ant-tag').textContent,'四分音符');
   await key('z',{ctrlKey:true});assert.equal(host.querySelector('.rhythm-properties .ant-tag').textContent,'八分音符');
   await key('y',{ctrlKey:true});assert.equal(host.querySelector('.rhythm-properties .ant-tag').textContent,'四分音符');
   await key('4');await key('d');await key('r');assert.equal(host.querySelector('.rhythm-properties .ant-tag').textContent,'八分音符');
+  await key('.');await key('t');assert.match(host.querySelector('.rhythm-properties .ant-tag').textContent,/附点八分音符.*3:2/);
+  await key('3');assert.match(host.querySelector('.rhythm-properties .ant-tag').textContent,/附点四分音符.*3:2/);await key('4');assert.equal(writes.length,0);
   await key('Tab');assert.equal(svg.getAttribute('viewBox'),'0 0 200 160');await key('Tab');assert.equal(svg.getAttribute('viewBox'),'0 0 200 100');
-  await key('s',{metaKey:true});assert.equal(savedBody.version,1);const event=savedBody.geometry.measures[0].events[0];assert.deepEqual(event.rhythm,{duration:8});assert.equal(event.centerX,55);assert.deepEqual(event.bbox,[40,20,70,80]);
+  await key('s',{metaKey:true});assert.equal(savedBody.version,1);const event=savedBody.geometry.measures[0].events[0];assert.equal(event.rhythm.duration,8);assert.equal(event.rhythm.dots,1);assert.equal(event.rhythm.tuplet.actual,3);assert.equal(event.rhythm.tuplet.normal,2);assert.ok(event.rhythm.tuplet.groupId);assert.equal(event.centerX,55);assert.deepEqual(event.bbox,[40,0,70,100]);assert.equal(svg.querySelector("line"),null);assert.equal(svg.querySelectorAll("[data-kind=corner-event]").length,2);
   assert.match(host.textContent,/草稿/);await key('s',{ctrlKey:true});assert.equal(savedBody.version,2);
+  const count=writes.length;await key('q');assert.equal(host.querySelector('[data-kind="move-event"]'),null);assert.equal(writes.length,count);
+  await key('z',{ctrlKey:true});assert.ok(host.querySelector('[data-kind="move-event"]'));assert.equal(writes.length,count);await click(host.querySelector('.rhythm-event-button'));
+  await key('q');await key('s',{ctrlKey:true});assert.equal(savedBody.geometry.measures[0].events.length,0);assert.equal(writes.length,count+1);
  }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=originalFetch;}
 });
 test('failed save retains drawn regions and a remounted editor restores them before retrying',async()=>{
@@ -66,12 +72,12 @@ test('failed save retains drawn regions and a remounted editor restores them bef
  const host=document.createElement('div');document.body.append(host);let root=createRoot(host);
  const render=()=>act(async()=>root.render(h(UiProvider,null,h(LocalizationEditor,{datasetId:'d',recordId:'r'}))));
  try{
-  await render();const svg=host.querySelector('svg[aria-label="小节与音符事件选区"]');
+  await render();await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});const svg=host.querySelector('svg[role="img"]');
   svg.getScreenCTM=()=>({inverse:()=>({})});svg.createSVGPoint=()=>({x:0,y:0,matrixTransform(){return{x:this.x,y:this.y};}});svg.setPointerCapture=()=>{};
   const draw=async(x1,y1,x2,y2)=>{for(const [type,x,y] of [['pointerdown',x1,y1],['pointermove',x2,y2],['pointerup',x2,y2]])await act(async()=>svg.dispatchEvent(new window.PointerEvent(type,{button:0,pointerId:1,clientX:x,clientY:y,bubbles:true})));};
   await click(button('画小节 M'));await draw(10,10,190,90);await click(button('画事件 E'));await draw(40,20,70,80);await key('s',{ctrlKey:true});
   const draft=JSON.parse(window.localStorage.getItem('omr-region-draft:r'));assert.equal(draft.geometry.measures[0].events.length,1);assert.match(toast,/旧版校验/);
-  await act(async()=>root.unmount());root=createRoot(host);fail=false;await render();
+  await act(async()=>root.unmount());root=createRoot(host);fail=false;await render();await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
   assert.ok(host.querySelector('[data-kind="move-event"]'));await key('s',{metaKey:true});
   assert.equal(savedBody.geometry.measures[0].events.length,1);assert.equal(window.localStorage.getItem('omr-region-draft:r'),null);
  }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=originalFetch;window.localStorage.clear();window.removeEventListener('omr-toast',onToast);}
@@ -88,10 +94,31 @@ test('single-row editor requests a row crop and never exposes other page systems
  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
  try{
   await act(async()=>root.render(h(UiProvider,null,h(LocalizationEditor,{datasetId:'d',recordId:'r'}))));
-  const svg=host.querySelector('svg[aria-label="小节与音符事件选区"]');assert.equal(svg.getAttribute('viewBox'),'10 60 180 70');
+  const svg=host.querySelector('svg[role="img"]');assert.equal(svg.getAttribute('viewBox'),'10 60 180 30');
   assert.ok(requests.includes('/api/v2/localization/records/r/content'));assert.ok(!requests.some(p=>p.includes('/sources/')));
   const image=svg.querySelector('image');assert.equal(image.getAttribute('y'),'60');assert.equal(image.getAttribute('height'),'70');
-  await key('Tab');assert.equal(svg.getAttribute('viewBox'),'10 60 180 30');await key('Tab');assert.equal(svg.getAttribute('viewBox'),'10 60 180 70');
+  await key('Tab');assert.equal(svg.getAttribute('viewBox'),'10 60 180 70');await key('Tab');assert.equal(svg.getAttribute('viewBox'),'10 60 180 30');
   assert.equal(host.querySelectorAll('.sidebar > button').length,2);assert.ok(button('上一行'));assert.ok(button('确认并下一行'));
+ }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=originalFetch;window.localStorage.clear();}
+});
+test('confirm sends edited timing and geometry in one request without a preliminary save',async()=>{
+ const remote=structuredClone(initial),p=remote.geometry.pages[0];
+ remote.geometry.measures=[{id:'m',pageId:p.localPageId,regionId:'row',systemId:'s',track:'guitar',voice:'1',barNumber:1,bbox:[10,0,190,100],staffLines:null,geometryConfirmed:false,completenessConfirmed:false,reviewNote:'',events:[{id:'e',voice:'1',centerX:50,bbox:[40,0,60,100],contextBBox:null,status:'accepted',evidence:{},annotationSource:{},confidence:null,rhythm:{duration:8}}]}];
+ const originalFetch=globalThis.fetch,writes=[];window.localStorage.clear();
+ globalThis.fetch=async(path,options={})=>{
+  if(String(path).endsWith('/content'))return new Response(new Blob(['crop'],{type:'image/png'}));
+  if(String(path).includes('/editor?'))return Response.json({previousId:null,nextId:null});
+  if(options.method){writes.push({path:String(path),method:options.method,body:JSON.parse(options.body)});return Response.json({...remote,geometry:JSON.parse(options.body).geometry,version:2,status:'confirmed'});}
+  return Response.json(remote);
+ };
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ try{
+  await act(async()=>root.render(h(UiProvider,null,h(LocalizationEditor,{datasetId:'d',recordId:'r'}))));
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
+  const measureButton=[...host.querySelectorAll('.sidebar .rhythm-row-button')].find(b=>b.textContent.includes('第 1 小节'));
+  await click(measureButton);await click(host.querySelector('.rhythm-event-button'));await key('.');await key('t');
+  assert.equal(writes.length,0);await key('Enter');assert.equal(writes.length,1);assert.equal(writes[0].method,'POST');assert.ok(writes[0].path.endsWith('/confirm'));
+  const label=writes[0].body.geometry.measures[0].events[0].rhythm;assert.equal(label.dots,1);assert.equal(label.tuplet.actual,3);assert.equal(writes[0].body.version,1);assert.equal(writes[0].body.acknowledged,true);
+  assert.equal(window.localStorage.getItem('omr-region-draft:r'),null);
  }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=originalFetch;window.localStorage.clear();}
 });

@@ -230,6 +230,10 @@ export function createDeletionService({ pool, storage, config }: any) {
       )
     ).rows;
     const keys = new Set<string>();
+    if(!["locMeasure","locEvent"].includes(s.kind)) {
+      const assets=(await c.query("SELECT object_key FROM omr_loc_crop_assets WHERE record_id=ANY($1::uuid[])",[records.map((r:any)=>r.id)])).rows;
+      for(const asset of assets)keys.add(asset.object_key);
+    }
     if (s.kind !== "region")
       for (const p of pages) {
         keys.add(p.object_key);
@@ -370,6 +374,7 @@ export function createDeletionService({ pool, storage, config }: any) {
           p.snapshots.map((r: any) => r.id),
         ]);
         if (!["locMeasure", "locEvent"].includes(p.input.kind)) {
+          await c.query("DELETE FROM omr_loc_crop_assets WHERE record_id=ANY($1::uuid[])",[p.records.map((r:any)=>r.id)]);
           await c.query(
             "DELETE FROM omr_loc_record_pages WHERE record_id=ANY($1::uuid[])",
             [p.records.map((r: any) => r.id)],

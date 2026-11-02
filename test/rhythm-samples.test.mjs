@@ -33,10 +33,10 @@ test('two systems become independent records, cropped content and navigation sta
  await s.api('/pages/'+p.image.id+'/confirm',json({version:p.image.version,acknowledged:true}));
  const ds=await s.api('/localization/datasets',json({name:'Rows',task:'rhythm',sourceDatasetId:s.dataset.id}),201);
  assert.equal(ds.imported,2);const path='/localization/datasets/'+ds.id;
- const list=await s.api(path+'/records');assert.equal(list.total,2);assert.deepEqual(list.items.map(r=>r.line_index),['1','2']);
+ const list=await s.api(path+'/records');assert.equal(list.total,2);assert.ok(list.items.every(r=>r.line_index===null));
  const first=await s.api('/localization/records/'+list.items[0].id),second=await s.api('/localization/records/'+list.items[1].id);
- assert.equal(first.geometry.regions.length,1);assert.equal(second.geometry.sample.id,'system:s2');assert.deepEqual(second.geometry.sample.bbox,[0,100,200,150]);
- assert.equal((await s.api(path+'/sync',json({}))).imported,0);
+ assert.equal(first.geometry.regions.length,1);assert.equal(second.geometry.sample,undefined);assert.deepEqual(second.geometry.regions[0].bbox,[0,0,200,50]);assert.equal(second.crop_image.height,50);
+ assert.equal((await s.api(path+'/sync',json({sourceDatasetId:s.dataset.id}))).imported,0);
  const queue=await s.api(path+'/editor?recordId='+first.id);assert.equal(queue.nextId,second.id);
  const response=await request(f,'/api/v2/localization/records/'+second.id+'/content',{headers:{Authorization:'Bearer '+s.grant.token}});
  assert.equal(response.status,200);const metadata=await sharp(Buffer.from(await response.arrayBuffer())).metadata();assert.equal(metadata.width,200);assert.equal(metadata.height,50);
@@ -58,14 +58,14 @@ test('schema 14 page records split without losing saved annotations, confirmatio
  await withLock(f.pool,c=>migrate(c));await withLock(f.pool,c=>migrate(c));
  const list=await s.api('/localization/datasets/'+ds+'/records');assert.equal(list.total,2);assert.equal(list.stats.confirmed,2);
  for(const [i,item] of list.items.entries()){
-  const r=await s.api('/localization/records/'+item.id);assert.equal(r.geometry.sample.index,i+1);assert.equal(r.version,7);assert.equal(r.status,'confirmed');assert.ok(r.first_labeled_at);
-  assert.deepEqual(r.geometry.measures,[geometry.measures[i]]);assert.equal(r.original.previousPageRecordId,id);
-  assert.equal((await f.pool.query('SELECT count(*)::int n FROM omr_loc_record_pages WHERE record_id=$1',[r.id])).rows[0].n,1);
+  const r=await s.api('/localization/records/'+item.id);assert.equal(r.geometry.sample,undefined);assert.equal(r.version,8);assert.equal(r.status,'confirmed');assert.ok(r.first_labeled_at);
+  assert.equal(r.geometry.measures[0].id,geometry.measures[i].id);assert.equal(r.geometry.measures[0].bbox[1],0);assert.deepEqual(r.original,{});
+  assert.equal((await f.pool.query('SELECT count(*)::int n FROM omr_loc_record_pages WHERE record_id=$1',[r.id])).rows[0].n,0);
  }
  const backup=(await f.pool.query('SELECT * FROM omr_loc_records WHERE id=$1',[id])).rows[0];assert.ok(backup.superseded_at);assert.deepEqual(backup.geometry,geometry);
  await s.api('/localization/records/'+id,{},410);
  assert.deepEqual((await f.pool.query('SELECT frozen FROM omr_loc_snapshots WHERE dataset_id=$1',[ds])).rows[0].frozen,frozen);
  const snapshot=await s.api('/localization/datasets/'+ds+'/snapshots',json({}),201);
- const exported=await s.api('/localization/snapshots/'+snapshot.id+'/native');assert.equal(exported.records.length,2);assert.ok(exported.records.every(r=>r.geometry.sample));
- assert.equal((await files()).length,15);
+ const exported=await s.api('/localization/snapshots/'+snapshot.id+'/native');assert.equal(exported.records.length,2);assert.ok(exported.records.every(r=>r.crop_image&&!r.geometry.sample));
+ assert.equal((await files()).length,16);
 });

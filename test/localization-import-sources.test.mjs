@@ -7,22 +7,22 @@ function platform() {
   const targets=[{id:'existing',name:'已有人工作业',task:'rhythm',source_dataset_id:'a'}, {id:'legacy',task:'geometry',source_dataset_id:'b'}];
   const pending={a:3,b:2};
   const calls=[];
-  return {calls,targets,health:{ok:true,schema:15},request:async(path,options={})=>{
+  return {calls,targets,health:{ok:true,schema:16},request:async(path,options={})=>{
     calls.push({path,options});
     if(path==='/api/v2/datasets') return Response.json(sources);
     if(path==='/api/v2/localization/datasets'&&!options.method) return Response.json(targets);
     if(path==='/api/v2/localization/datasets') {
       const body=JSON.parse(options.body);
       assert.equal(body.task,'rhythm');
-      const target={id:'created',name:body.name,task:body.task,source_dataset_id:body.sourceDatasetId};
+      const target={id:'created',name:body.name,task:body.task,source_dataset_id:null,import_key:body.importKey};
       targets.push(target);
       const imported=pending[body.sourceDatasetId];pending[body.sourceDatasetId]=0;
       return Response.json({...target,imported});
     }
     const target=targets.find(t=>path===`/api/v2/localization/datasets/${t.id}/sync`);
     assert.ok(target,'Only dataset create/sync mutations are allowed');
-    assert.deepEqual(JSON.parse(options.body),{});
-    const imported=pending[target.source_dataset_id];pending[target.source_dataset_id]=0;
+    const sourceId=JSON.parse(options.body).sourceDatasetId;assert.ok(sourceId);
+    const imported=pending[sourceId];pending[target.source_dataset_id]=0;
     return Response.json({imported});
   }};
 }
@@ -53,11 +53,11 @@ test('failed network write is checkpointed and never automatically retried',asyn
 });
 test('schema 13 is rejected before any dataset request or write, even with no existing datasets',async()=>{
   const p=platform();
-  await assert.rejects(importSources({...p,health:{ok:true,schema:13}}),/需要 >=15/);
+  await assert.rejects(importSources({...p,health:{ok:true,schema:13}}),/需要 >=16/);
   assert.equal(p.calls.length,0);
 });
 test('page-based schema 14 cannot receive new single-row imports',async()=>{
-  const p=platform();await assert.rejects(importSources({...p,health:{ok:true,schema:14}}),/需要 >=15/);assert.equal(p.calls.length,0);
+  const p=platform();await assert.rejects(importSources({...p,health:{ok:true,schema:14}}),/需要 >=16/);assert.equal(p.calls.length,0);
 });
 test('incomplete deployment missing association fields is rejected without writes',async()=>{
   const p=platform();p.targets.push({id:'old-empty',name:'旧接口创建的空数据集',record_count:0});

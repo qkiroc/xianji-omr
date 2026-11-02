@@ -18,6 +18,8 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import yazl from "yazl";
 import { importRhythmPages } from "./rhythm-import.ts";
+import { detachRhythmRecord, finishCropWrites, storeCrop, sha256, type CropStorage } from "./crop-assets.ts";
+import { rhythmBeats } from "../../../shared/rhythm.ts";
 import { annotationWindow, annotationTrend, ANNOTATION_TREND_DAYS } from "../../../shared/annotation-trend.ts";
 import type {
   Geometry,
@@ -37,9 +39,7 @@ import {
   finite,
   bbox,
 } from "./geometry.ts";
-interface Storage {
-  get(key: string): Promise<Buffer>;
-}
+interface Storage extends CropStorage {}
 interface SourceRow {
   id: string;
   checksum: string;
@@ -65,9 +65,11 @@ async function tx<T>(
     await deletionBarrier(c);
     const v = await fn(c);
     await c.query("COMMIT");
+    await finishCropWrites(c,true);
     return v;
   } catch (e) {
     await c.query("ROLLBACK");
+    await finishCropWrites(c,false);
     throw e;
   } finally {
     if (deletionHeld)
@@ -128,6 +130,11 @@ async function sourcesValid(
   r: LocalizationRecord,
   lock = false,
 ) {
+  if(r.crop_image){
+    const asset=(await c.query("SELECT * FROM omr_loc_crop_assets WHERE record_id=$1",[r.id])).rows[0];
+    insist(asset&&asset.checksum===r.crop_image.checksum&&asset.width===r.crop_image.width&&asset.height===r.crop_image.height,"裁片信息不一致",409);
+    return;
+  }
   for (const p of r.geometry.pages) {
     const current = await source(c, p.sourcePageId, lock);
     insist(
@@ -151,6 +158,8 @@ async function noSplitLeak(
   split: string,
   group: string,
 ) {
+  const independent=await c.query("SELECT id FROM omr_loc_records WHERE dataset_id=$1 AND split<>$2 AND (group_key=$3 OR crop_image->>'checksum'=ANY($4::text[])) AND superseded_at IS NULL LIMIT 1",[datasetId,split,group,pages.map(p=>p.sourceSha)]);
+  insist(!independent.rowCount,"同一歌曲的数据不能跨集合划分",409);
   const conflict = await c.query(
     "SELECT r.id FROM omr_loc_records r JOIN omr_loc_record_pages rp ON rp.record_id=r.id JOIN omr_images i ON i.id=rp.source_page_id JOIN omr_songs s ON s.id=i.song_id JOIN omr_datasets d ON d.id=s.dataset_id WHERE r.dataset_id=$1 AND r.split<>$2 AND (r.group_key=$3 OR rp.source_sha=ANY($4::text[])) AND i.deleted_at IS NULL AND s.deleted_at IS NULL AND d.deleted_at IS NULL AND i.checksum=rp.source_sha AND s.split=r.split AND s.song_group_key=r.group_key LIMIT 1",
     [datasetId, split, group, pages.map((p) => p.sourceSha)],
@@ -163,6 +172,10 @@ async function verifyObjects(
   storage: Storage,
   seen = new Set<string>(),
 ) {
+  if(r.crop_image){
+    const asset=(await c.query("SELECT object_key FROM omr_loc_crop_assets WHERE record_id=$1",[r.id])).rows[0];
+    insist(asset&&sha256(await storage.get(asset.object_key))===r.crop_image.checksum,"裁片校验失败",409);return;
+  }
   for (const page of r.geometry.pages) {
     if (seen.has(page.sourcePageId)) continue;
     const p = await source(c, page.sourcePageId, true),
@@ -203,8 +216,37 @@ function eventFrom(raw: unknown, voice: string): LocEvent {
 }
 export function registerLocalization(
   router: Router,
-  { pool, storage }: { pool: Pool; storage: Storage },
+  { pool, storage, config }: { pool: Pool; storage: Storage; config: {oss:{prefix:string}} },
 ) {
+  const detachDataset=async(c:PoolClient,d:{id:string;source_dataset_id:string|null})=>{
+    const rows=(await c.query("SELECT * FROM omr_loc_records WHERE dataset_id=$1 AND crop_image IS NULL AND superseded_at IS NULL ORDER BY id FOR UPDATE",[d.id])).rows;
+    for(const r of rows)await detachRhythmRecord(c,r,storage,config.oss.prefix);
+    const receipt=d.source_dataset_id?sha256(Buffer.from("layout-crops:"+d.source_dataset_id)):null;
+    await c.query("UPDATE omr_loc_datasets SET source_dataset_id=NULL,import_key=CASE WHEN import_key IS NULL AND $2::text IS NOT NULL AND NOT EXISTS(SELECT 1 FROM omr_loc_datasets WHERE import_key=$2) THEN $2 ELSE import_key END WHERE id=$1",[d.id,receipt]);
+    return rows.length;
+  };
+  // Accept the output image from any crop model, without a layout dataset or
+  // source-page ID. importKey allows a model pipeline to retry idempotently.
+  router.post("/localization/datasets/:datasetId/crops",async(req,res)=>{
+    const result=await tx(pool,async c=>{
+      await lock(c);const d=await dataset(c,req.params.datasetId);insist(d.task==="rhythm","数据集类型无效");
+      const track=String(req.body.track||"guitar"),split=String(req.body.split||"train");
+      insist(["guitar","melody","lyrics"].includes(track)&&["train","val","test"].includes(split),"谱行类型或集合无效");
+      const encoded=string(req.body.imageBase64,"裁片内容",1800000);insist(/^[A-Za-z0-9+/]+={0,2}$/.test(encoded),"裁片编码无效");
+      const bytes=await sharp(Buffer.from(encoded,"base64"),{limitInputPixels:50000000}).png().toBuffer();
+      const image=await sharp(bytes).metadata(),id=randomUUID(),checksum=sha256(bytes);
+      insist(image.width&&image.height,"裁片尺寸无效");
+      const corpusId="crop-upload:"+fingerprint(req.body.importKey||id),group=string(req.body.groupKey||"crop:"+checksum,"歌曲分组");
+      const existing=(await c.query("SELECT * FROM omr_loc_records WHERE dataset_id=$1 AND corpus_id=$2",[d.id,corpusId])).rows[0];
+      if(existing){insist(existing.crop_image?.checksum===checksum&&existing.group_key===group&&existing.split===split&&existing.geometry.regions[0].track===track,"导入标识已被不同的裁片数据使用",409);return existing;}
+      const page:SourcePage={localPageId:id,sourcePageId:id,sourceSha:checksum,pixelSha:null,width:image.width,height:image.height,mapping:[[1,0,0],[0,1,0],[0,0,1]]};
+      await noSplitLeak(c,d.id,[page],split,group);
+      const geometry=validateGeometry({schemaVersion:"omr-rhythm-v1",pages:[page],regions:[{id:"row",pageId:id,systemId:null,track,bbox:[0,0,image.width,image.height]}],measures:[]},[page]);
+      await c.query("INSERT INTO omr_loc_records(id,dataset_id,corpus_id,corpus_revision,source_fingerprint,input_checksum,original,geometry,title,group_key,split,source) VALUES($1,$2,$3,1,$4,$4,'{}'::jsonb,$5,$6,$7,$8,'crop-image')",[id,d.id,corpusId,checksum,geometry,string(req.body.title||"未命名裁片","名称"),group,split]);
+      const crop=await storeCrop(c,storage,config.oss.prefix,id,bytes);
+      return (await c.query("UPDATE omr_loc_records SET crop_image=$2 WHERE id=$1 RETURNING *",[id,crop])).rows[0];
+    });res.status(201).json(result);
+  });
   router.get("/localization/datasets", async (req, res) =>
     res.json(
       (
@@ -225,12 +267,13 @@ export function registerLocalization(
             insist(["geometry","rhythm"].includes(task),"标注任务无效");
             const sourceId = req.body.sourceDatasetId ?? null;
             insist(sourceId === null || uuid(sourceId),"切图数据集ID无效");
-            if (task === "rhythm") {
-              insist(sourceId && (await c.query("SELECT id FROM omr_datasets WHERE id=$1 AND deleted_at IS NULL",[sourceId])).rowCount,"请选择有效的切图数据集");
-            }
-            const d = (await c.query("INSERT INTO omr_loc_datasets(id,name,description,task,source_dataset_id) VALUES($1,$2,$3,$4,$5) RETURNING *",
-              [randomUUID(),string(req.body.name,"名称"),String(req.body.description || "").slice(0,2000),task,sourceId])).rows[0];
-            const imported = task === "rhythm" && sourceId ? await importRhythmPages(c,d.id,sourceId) : 0;
+            if(sourceId) insist((await c.query("SELECT id FROM omr_datasets WHERE id=$1 AND deleted_at IS NULL",[sourceId])).rowCount,"导入来源不存在");
+            const importKey=req.body.importKey==null?null:string(req.body.importKey,"导入标识");
+            let d=importKey?(await c.query("SELECT * FROM omr_loc_datasets WHERE import_key=$1",[importKey])).rows[0]:null;
+            if(d)insist(d.task===task,"导入标识对应的数据集类型不一致",409);
+            d ||= (await c.query("INSERT INTO omr_loc_datasets(id,name,description,task,source_dataset_id,import_key) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
+              [randomUUID(),string(req.body.name,"名称"),String(req.body.description||"").slice(0,2000),task,task==="rhythm"?null:sourceId,importKey])).rows[0];
+            const imported = task === "rhythm" && sourceId ? await importRhythmPages(c,d.id,sourceId,storage,config.oss.prefix) : 0;
             return {...d,imported};
           })
         ),
@@ -238,9 +281,19 @@ export function registerLocalization(
   );
   router.post("/localization/datasets/:datasetId/sync",async(req,res) => res.json(await tx(pool,async c => {
     await lock(c); const d = await dataset(c,req.params.datasetId);
-    insist(d.task === "rhythm" && d.source_dataset_id,"该数据集未关联切图来源");
-    return {imported:await importRhythmPages(c,d.id,d.source_dataset_id)};
+    insist(d.task === "rhythm","该数据集不是小节和事件数据集");
+    const sourceId=req.body.sourceDatasetId||d.source_dataset_id;
+    insist(uuid(sourceId),"请选择本次导入的裁片来源");
+    await detachDataset(c,d);
+    const imported=await importRhythmPages(c,d.id,sourceId,storage,config.oss.prefix);
+    await c.query("UPDATE omr_loc_datasets SET source_dataset_id=NULL WHERE id=$1",[d.id]);
+    return {imported};
   })));
+  router.post("/localization/datasets/:datasetId/detach",async(req,res)=>res.json(await tx(pool,async c=>{
+    await lock(c);const d=await dataset(c,req.params.datasetId);insist(d.task==="rhythm","数据集类型无效");
+    return {converted:await detachDataset(c,d)};
+  })));
+
   router.get("/localization/datasets/:datasetId/editor",async(req,res) => {
     const d = await dataset(pool,req.params.datasetId), current = await record(pool,req.query.recordId);
     insist(current.dataset_id === d.id,"记录不属于此数据集",404);
@@ -553,7 +606,10 @@ export function registerLocalization(
     ),
   );
   router.get("/localization/records/:recordId", async (req, res) => {
-    const r = await record(pool, req.params.recordId);
+    const existing = await record(pool, req.params.recordId);
+    const r = existing.geometry.schemaVersion === "omr-rhythm-v1" && !existing.crop_image
+      ? await tx(pool,async c=>{await lock(c);return detachRhythmRecord(c,await record(c,req.params.recordId,true),storage,config.oss.prefix);})
+      : existing;
     await sourcesValid(pool, r);
     if (r.geometry.schemaVersion === "omr-rhythm-v1") r.geometry = validateGeometry(r.geometry,r.geometry.pages,{previous:r.geometry});
     res.json(r);
@@ -574,14 +630,14 @@ export function registerLocalization(
         });
         insist(geometry.schemaVersion === r.geometry.schemaVersion,"不能修改记录的标注任务",409);
         insist(
-          r.geometry.measures.every((m) =>
+          r.geometry.schemaVersion === "omr-rhythm-v1" || r.geometry.measures.every((m) =>
             geometry.measures.some((n) => n.id === m.id),
           ),
           "删除小节请使用永久删除预览与确认接口",
           409,
         );
         insist(
-          r.geometry.measures.every((m) =>
+          r.geometry.schemaVersion === "omr-rhythm-v1" || r.geometry.measures.every((m) =>
             m.events.every((e) =>
               geometry.measures
                 .find((n) => n.id === m.id)
@@ -631,10 +687,11 @@ export function registerLocalization(
             );
             await verifyObjects(c, r, storage);
           }
-          const geometry = validateGeometry(r.geometry, r.geometry.pages, {
+          const geometry = validateGeometry(req.body.geometry ?? r.geometry, r.geometry.pages, {
             confirm: action === "confirm",
             previous: action === "unconfirm" ? undefined : r.geometry,
           });
+          insist(geometry.schemaVersion===r.geometry.schemaVersion,"不能更改标注类型",409);
           return (
             await c.query(
               "UPDATE omr_loc_records SET geometry=$1,status=$2,version=version+1,confirmed_at=$3,first_labeled_at=CASE WHEN $2='confirmed' THEN COALESCE(first_labeled_at,now()) ELSE first_labeled_at END,updated_at=now() WHERE id=$4 RETURNING *",
@@ -695,7 +752,14 @@ export function registerLocalization(
     res.type("png").set("X-Checksum-Sha256", fingerprintBytes(raw)).send(raw);
   });
   router.get("/localization/records/:recordId/content",async(req,res)=>{
-    const r=await record(pool,req.params.recordId),sample=r.geometry.sample;
+    const r=await record(pool,req.params.recordId);
+    if(r.crop_image){
+      const asset=(await pool.query("SELECT object_key FROM omr_loc_crop_assets WHERE record_id=$1",[r.id])).rows[0];
+      insist(asset,"裁片不存在",410);const bytes=await storage.get(asset.object_key);
+      insist(sha256(bytes)===r.crop_image.checksum,"裁片校验失败",409);
+      res.type("png").set("X-Checksum-Sha256",r.crop_image.checksum).send(bytes);return;
+    }
+    const sample=r.geometry.sample;
     insist(sample,"该记录没有单行裁片",400);
     const page=r.geometry.pages.find(p=>p.localPageId===sample.pageId);
     insist(page,"谱行来源不存在",410);
@@ -783,9 +847,9 @@ export function registerLocalization(
           "快照最多3000小节轨道",
         );
         const frozen = {
-            schemaVersion: ds.task === "rhythm" ? "omr-rhythm-snapshot-v1" : "omr-localization-snapshot-v1",
+            schemaVersion: ds.task === "rhythm" ? "omr-rhythm-snapshot-v2" : "omr-localization-snapshot-v1",
             dataset: ds,
-            truth: ds.task === "rhythm" ? "geometry-and-event-category" : "geometry-only-not-musical-content",
+            truth: ds.task === "rhythm" ? "geometry-and-rhythm" : "geometry-only-not-musical-content",
             records,
           },
           hash = fingerprint(frozen),
@@ -852,17 +916,10 @@ export function registerLocalization(
       void done.catch(() => {});
       for (const record of r.frozen.records)
         for (const page of record.geometry.pages) {
-          const rawPage = await pool.query<{ object_key: string }>(
-            "SELECT object_key FROM omr_images WHERE id=$1",
-            [page.sourcePageId],
-          );
-          insist(rawPage.rowCount, "冻结来源原图缺失", 409);
-          const raw = await storage.get(rawPage.rows[0].object_key);
-          insist(
-            fingerprintBytes(raw) === page.sourceSha,
-            "冻结来源原图SHA不符",
-            409,
-          );
+          const rawPage = record.crop_image ? await pool.query<{object_key:string}>("SELECT object_key FROM omr_loc_crop_assets WHERE record_id=$1",[record.id]) : await pool.query<{object_key:string}>("SELECT object_key FROM omr_images WHERE id=$1",[page.sourcePageId]);
+          insist(rawPage.rowCount,"导出图像不存在",409);
+          const raw=await storage.get(rawPage.rows[0].object_key);
+          insist(fingerprintBytes(raw)===page.sourceSha,"导出图像校验失败",409);
           for (const measure of [
             ...(record.geometry.regions ?? []).filter(r => r.pageId === page.localPageId).map(r => ({id:r.id,track:r.track,bbox:r.bbox,events:[] as LocEvent[],isRegion:true})),
             ...record.geometry.measures.filter(m => m.pageId === page.localPageId).map(m => ({...m,isRegion:false})),
@@ -906,7 +963,7 @@ export function registerLocalization(
               const local = (box: number[]) => [box[0]-b[0],box[1]-b[1],box[2]-b[0],box[3]-b[1]];
               const eventAnnotations = (m: Measure) => m.events.filter(e => e.status !== "rejected").map(e => ({
                 id:e.id,bbox:e.bbox ? local(e.bbox) : null,anchorX:e.centerX === null ? null : e.centerX-b[0],
-                rhythm:e.rhythm ? {duration:m.track === "lyrics" ? null : e.rhythm.duration} : undefined,
+                rhythm:e.rhythm,beats:e.rhythm?rhythmBeats(e.rhythm):null,
               }));
               mappings.push({
                 file,
@@ -914,11 +971,10 @@ export function registerLocalization(
                 id: crop.id,
                 recordId: record.id,
                 measureId: measure.id,
-                sourcePageId: page.sourcePageId,
-                sourceSha: page.sourceSha,
+                ...(record.crop_image?{cropChecksum:record.crop_image.checksum}:{sourcePageId:page.sourcePageId,sourceSha:page.sourceSha}),
                 bbox: b,
                 ...(record.geometry.sample ? {sample:record.geometry.sample} : {}),
-                localToSource: [[1,0,b[0]],[0,1,b[1]],[0,0,1]],
+                ...(record.crop_image ? {localToCrop:[[1,0,b[0]],[0,1,b[1]],[0,0,1]]} : {localToSource:[[1,0,b[0]],[0,1,b[1]],[0,0,1]]}),
                 track: measure.track,
                 songGroupKey: record.group_key,
                 split: record.split,
@@ -926,7 +982,8 @@ export function registerLocalization(
                   id:m.id,barNumber:m.barNumber,bbox:m.bbox ? local(m.bbox) : null,events:eventAnnotations(m),
                 }))} : {}),
                 ...(crop.kind === "measure" ? {events:eventAnnotations(measure as Measure),barNumber:(measure as Measure).barNumber} : {}),
-                ...(crop.kind === "event" ? { rhythm:measure.events.find(e => e.id === crop.id)?.rhythm ? {duration:measure.track === "lyrics" ? null : measure.events.find(e => e.id === crop.id)!.rhythm!.duration} : undefined,
+                ...(crop.kind === "event" ? { rhythm:measure.events.find(e => e.id === crop.id)?.rhythm,
+                  beats:measure.events.find(e => e.id === crop.id)?.rhythm ? rhythmBeats(measure.events.find(e => e.id === crop.id)!.rhythm!) : null,
                   anchorX:measure.events.find(e => e.id === crop.id)?.centerX,
                   localAnchorX:(measure.events.find(e => e.id === crop.id)?.centerX ?? b[0])-b[0],
                   contextFile:measureFiles.get(record.id+":"+measure.id),
@@ -938,7 +995,7 @@ export function registerLocalization(
       zip.addBuffer(
         Buffer.from(
           JSON.stringify({
-            schemaVersion: r.frozen.truth === "geometry-and-event-category" ? "omr-rhythm-crops-v1" : "omr-localization-crops-v1",
+            schemaVersion: r.frozen.truth === "geometry-and-rhythm" ? "omr-rhythm-crops-v2" : r.frozen.truth === "geometry-and-event-category" ? "omr-rhythm-crops-v1" : "omr-localization-crops-v1",
             snapshotId: r.id,
             fingerprint: r.fingerprint,
             truth: r.frozen.truth ?? "geometry-only-not-musical-content",

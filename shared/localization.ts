@@ -30,6 +30,10 @@ export interface LocEvent {
 export type RhythmDuration = 1 | 2 | 4 | 8 | 16 | 32;
 export interface RhythmLabel {
   duration: RhythmDuration | null;
+  dots?: 1 | 2 | 3;
+  kind?: "rest";
+  tuplet?: { actual: number; normal: number; groupId?: string };
+  tie?: "start" | "continue" | "stop";
 }
 export interface RhythmRegion {
   id: string; pageId: string; systemId: string | null;
@@ -81,6 +85,7 @@ export interface RhythmSample {
   bbox: XYXY;
 }
 export interface LocalizationRecord {
+  crop_image?: { width: number; height: number; checksum: string } | null;
   superseded_at?: string | null;
   confirmed_at: string | null;
   id: string;
@@ -100,6 +105,7 @@ export interface LocalizationRecord {
   updated_at: string;
 }
 export interface LocDataset {
+  import_key?: string | null;
   task?: "geometry" | "rhythm";
   source_dataset_id?: string | null;
   source_name?: string | null;
